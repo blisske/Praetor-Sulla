@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import api from '../lib/api.js'
 
-const GREEN = '#10B981'
+const BLUE = '#3B82F6'
 
 export default function Trades() {
   const [trades, setTrades] = useState([])
@@ -24,7 +24,7 @@ export default function Trades() {
           {['ALL', 'BUY', 'SELL'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-              style={filter === f ? { background:GREEN, color:'#fff' } : { background:'var(--bg-elevated)', color:'var(--text-sub)' }}>
+              style={filter === f ? { background:BLUE, color:'#fff' } : { background:'var(--bg-elevated)', color:'var(--text-sub)' }}>
               {f}
             </button>
           ))}
@@ -52,9 +52,9 @@ export default function Trades() {
               const shares   = (isBuy || isBuyAdd) ? t.amount : null
 
               const chipStyle = isBuyAdd
-                ? { background:'transparent', color:GREEN, border:`1.5px solid ${GREEN}` }
+                ? { background:'transparent', color:BLUE, border:`1.5px solid ${BLUE}` }
                 : isBuy
-                  ? { background:'rgba(16,185,129,0.15)', color:GREEN, border:'1px solid rgba(16,185,129,0.25)' }
+                  ? { background:'rgba(59,130,246,0.15)', color:BLUE, border:'1px solid rgba(59,130,246,0.25)' }
                   : { background:'var(--bg-elevated)', color:'var(--text-sub)' }
 
               return (

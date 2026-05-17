@@ -4,7 +4,7 @@ import { TrendingUp, TrendingDown, Activity, DollarSign, Layers, Clock, Sparkles
 import HelpTip from '../components/HelpTip.jsx'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
-const GREEN = '#10B981'
+const BLUE = '#3B82F6'
 
 function RiskModeBanner({ equity, lastTick }) {
   const mode      = lastTick?.risk_mode ?? equity?.risk_mode ?? 'NORMAL'
@@ -92,7 +92,7 @@ function MarketRail({ market, symbols }) {
           const regime = d?.regime ?? '—'
           const price = d?.price
           const isTrending = regime === 'TRENDING'
-          const rsiColor = rsi > 70 ? '#f59e0b' : isTrending ? '#22c55e' : GREEN
+          const rsiColor = rsi > 70 ? '#f59e0b' : isTrending ? '#22c55e' : BLUE
           return (
             <div key={sym} style={{ padding:'12px 14px', borderRight:'1px solid var(--border-deep)', borderBottom:'1px solid var(--border-deep)', display:'flex', flexDirection:'column', gap:3 }}>
               <div style={{ fontSize:10, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.1em' }}>{sym}</div>
@@ -117,7 +117,7 @@ function MarketRail({ market, symbols }) {
 
 function StatCard({ label, value, sub, icon: Icon, color = 'accent' }) {
   const palette = {
-    accent: { bg:'rgba(16,185,129,0.18)', color:GREEN,    border:'1px solid rgba(16,185,129,0.30)' },
+    accent: { bg:'rgba(59,130,246,0.18)', color:BLUE,    border:'1px solid rgba(59,130,246,0.30)' },
     green:  { bg:'rgba(34,197,94,0.15)',  color:'#22c55e', border:'1px solid rgba(34,197,94,0.25)'  },
     red:    { bg:'rgba(239,68,68,0.15)',   color:'#f87171', border:'1px solid rgba(239,68,68,0.25)'  },
     slate:  { bg:'rgba(71,85,105,0.15)',   color:'var(--text-sub)', border:'1px solid rgba(71,85,105,0.20)' },
@@ -163,15 +163,15 @@ function TradeRow({ trade }) {
   // BUY ADD chips are outlined (no fill) to differentiate pyramid legs from
   // fresh entries at a glance — same color family, different shape.
   const chipStyle = isBuyAdd
-    ? { background:'transparent', color:GREEN, border:`1.5px solid ${GREEN}`, padding:'1.5px 8px', borderRadius:999, fontSize:11, fontWeight:600 }
+    ? { background:'transparent', color:BLUE, border:`1.5px solid ${BLUE}`, padding:'1.5px 8px', borderRadius:999, fontSize:11, fontWeight:600 }
     : isBuy
-      ? { background:'rgba(16,185,129,0.18)', color:GREEN, border:'1px solid rgba(16,185,129,0.28)', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:600 }
+      ? { background:'rgba(59,130,246,0.18)', color:BLUE, border:'1px solid rgba(59,130,246,0.28)', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:600 }
       : { background:'var(--bg-elevated)', color:'var(--text-sub)', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:600 }
 
   return (
     <div style={{ borderBottom:'1px solid var(--border-row)' }} className="flex items-center justify-between py-3 last:border-0">
       <div className="flex items-center gap-3">
-        <div style={{ width:4, height:32, borderRadius:2, flexShrink:0, background: (isBuy || isBuyAdd) ? GREEN : isWin ? '#22c55e' : '#f87171' }} />
+        <div style={{ width:4, height:32, borderRadius:2, flexShrink:0, background: (isBuy || isBuyAdd) ? BLUE : isWin ? '#22c55e' : '#f87171' }} />
         <div>
           <div className="text-sm font-medium" style={{ color:'var(--text-primary)' }}>{trade.symbol}</div>
           <div className="text-xs" style={{ color:'var(--text-muted)' }}>{trade.strategy}</div>
@@ -300,10 +300,10 @@ function AnatomyPanel({ trade }) {
           Consensus Score
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 13, fontFamily: "'JetBrains Mono', monospace", color: GREEN, fontWeight: 700 }}>
+          <span style={{ fontSize: 13, fontFamily: "'JetBrains Mono', monospace", color: BLUE, fontWeight: 700 }}>
             {parsed.score} / {parsed.minScore} required
           </span>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: 'rgba(16,185,129,0.18)', color: GREEN, border: '1px solid rgba(16,185,129,0.30)', letterSpacing: '0.08em' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: 'rgba(59,130,246,0.18)', color: BLUE, border: '1px solid rgba(59,130,246,0.30)', letterSpacing: '0.08em' }}>
             → ENTERED
           </span>
         </span>
@@ -415,14 +415,14 @@ export default function Dashboard() {
             <AreaChart data={equityHistory}>
               <defs>
                 <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={GREEN} stopOpacity={0.22} />
-                  <stop offset="95%" stopColor={GREEN} stopOpacity={0}    />
+                  <stop offset="5%"  stopColor={BLUE} stopOpacity={0.22} />
+                  <stop offset="95%" stopColor={BLUE} stopOpacity={0}    />
                 </linearGradient>
               </defs>
               <XAxis dataKey="time" tick={{ fontSize:10, fill:'#475569' }} />
               <YAxis domain={['auto','auto']} tick={{ fontSize:10, fill:'#475569' }} tickFormatter={v => `$${v.toLocaleString()}`} width={70} />
               <Tooltip contentStyle={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:8, fontSize:11, color:'var(--text-primary)' }} formatter={v => [`$${v.toFixed(2)}`, 'Equity']} />
-              <Area type="monotone" dataKey="equity" stroke={GREEN} strokeWidth={2} fill="url(#eqGrad)" dot={{ fill:GREEN, r:3 }} />
+              <Area type="monotone" dataKey="equity" stroke={BLUE} strokeWidth={2} fill="url(#eqGrad)" dot={{ fill:BLUE, r:3 }} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -461,8 +461,8 @@ export default function Dashboard() {
                         {isPyramid && (
                           <span style={{
                             fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
-                            background: 'rgba(16,185,129,0.15)', color: GREEN,
-                            border: '1px solid rgba(16,185,129,0.30)', letterSpacing: '0.05em',
+                            background: 'rgba(59,130,246,0.15)', color: BLUE,
+                            border: '1px solid rgba(59,130,246,0.30)', letterSpacing: '0.05em',
                           }}>×{legCount}</span>
                         )}
                       </div>

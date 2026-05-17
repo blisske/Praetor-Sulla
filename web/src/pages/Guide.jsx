@@ -1,16 +1,16 @@
 import { BookOpen, Compass, Layers, Filter, Shield, FlaskConical, LayoutDashboard, MessageSquare, ListChecks, Library, Clock } from 'lucide-react'
 
-const ORANGE = '#F7931A'
-const GREEN  = '#34d399'
-const AMBER  = '#fbbf24'
-const RED    = '#f87171'
-const BLUE   = '#60a5fa'
+const BLUE   = '#3B82F6'   // Sulla brand accent (sections, primary, Trend Following)
+const GREEN  = '#34d399'   // semantic — Mean Reversion paradigm
+const AMBER  = '#fbbf24'   // semantic — Liquidity Sweep paradigm, drawdown Alert
+const RED    = '#f87171'   // semantic — drawdown Halt
+const CYAN   = '#06B6D4'   // Volatility Breakout paradigm (was BLUE before brand rename)
 
 // ─── Reusable bits ──────────────────────────────────────────────────────────
 const Card = ({ children, id, icon: Icon, title, subtitle }) => (
   <section id={id} className="rounded-xl p-6 scroll-mt-6" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
     <div className="flex items-center gap-2 mb-1">
-      {Icon && <Icon size={18} style={{ color: ORANGE }} />}
+      {Icon && <Icon size={18} style={{ color: BLUE }} />}
       <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h2>
     </div>
     {subtitle && <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>{subtitle}</p>}
@@ -18,7 +18,7 @@ const Card = ({ children, id, icon: Icon, title, subtitle }) => (
   </section>
 )
 
-const Tag = ({ children, color = ORANGE }) => (
+const Tag = ({ children, color = BLUE }) => (
   <span className="inline-block px-2 py-0.5 rounded text-xs font-mono"
         style={{ background: color + '22', color, border: `1px solid ${color}55` }}>
     {children}
@@ -51,7 +51,7 @@ const Section1 = () => (
       compounds over years</strong> on a serious-but-not-casino posture. Long-only spot equities,
       no leverage, no shorts, no options tail risk. Every trade carries automatic risk controls;
       capital preservation isn't the primary mandate but tail-risk discipline still is.
-      See <a href="#risk" className="underline" style={{color: ORANGE}}>§4 Risk management</a>.
+      See <a href="#risk" className="underline" style={{color: BLUE}}>§4 Risk management</a>.
     </p>
     <p>
       Right now Sulla is in <Tag>SHADOW MODE</Tag> — every decision the live engine would have
@@ -112,8 +112,8 @@ const Section2 = () => (
         </div>
         <div className="text-center" style={{ color: 'var(--text-muted)' }}>→ routes to</div>
         <div className="space-y-2">
-          <div className="p-2 rounded" style={{ background: ORANGE + '22', color: ORANGE }}>Trend Following</div>
-          <div className="p-2 rounded" style={{ background: BLUE + '22', color: BLUE }}>Volatility Breakout (any regime)</div>
+          <div className="p-2 rounded" style={{ background: BLUE + '22', color: BLUE }}>Trend Following</div>
+          <div className="p-2 rounded" style={{ background: CYAN + '22', color: CYAN }}>Volatility Breakout (any regime)</div>
         </div>
         <div className="text-center p-3 rounded-lg" style={{ background: 'var(--bg-elevated)' }}>
           <div className="font-mono" style={{ color: 'var(--text-primary)' }}>ADX &lt; 30</div>
@@ -129,7 +129,7 @@ const Section2 = () => (
 
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <ParadigmCard
-        tag="A" name="Trend Following" color={ORANGE}
+        tag="A" name="Trend Following" color={BLUE}
         fires="Strong uptrend (ADX high, EMA9 &gt; EMA21) + RSI dipped below entry threshold"
         thesis='"Buy the dip in a strong trend." Catches pullbacks during established momentum, riding the trail until the trend rolls over. The bread-and-butter paradigm for trending blue-chips like NVDA in a momentum tape.'
       />
@@ -139,7 +139,7 @@ const Section2 = () => (
         thesis='"Buy the floor of the range." Targets a return to the middle of the range; exits at the mean or upper band. Works best on stable, mean-reverting names like SPY or large utilities/staples.'
       />
       <ParadigmCard
-        tag="C" name="Volatility Breakout" color={BLUE}
+        tag="C" name="Volatility Breakout" color={CYAN}
         fires="Bollinger Band Width compressed (squeeze) + price pierces upper band + strong RSI surge"
         thesis='"Catch the explosion out of a coiled spring." Fires in either regime — when volatility has been suppressed and is about to expand. Common around earnings drift and macro reveals (where Sulla is already gated by the blackout, by design).'
       />
@@ -154,14 +154,14 @@ const Section2 = () => (
       Each paradigm has its own entry RSI threshold, configurable per symbol via <Code>symbol_overrides</Code>.
       The same paradigm logic ports cleanly from Tiberius (crypto) — the underlying math doesn't care
       whether it's looking at BTC bars or AAPL bars. What does change is the timeframe (Sulla uses
-      30-min bars; Tiberius uses 1-hour) and session bounds. See the <a href="#tuning" className="underline" style={{color: ORANGE}}>Self-tuning</a> section
+      30-min bars; Tiberius uses 1-hour) and session bounds. See the <a href="#tuning" className="underline" style={{color: BLUE}}>Self-tuning</a> section
       for how thresholds get refined over time.
     </p>
   </Card>
 )
 
 // ─── Section 3 — Consensus ──────────────────────────────────────────────────
-const ConsensusRow = ({ n, label, desc, points, color = ORANGE }) => (
+const ConsensusRow = ({ n, label, desc, points, color = BLUE }) => (
   <div className="grid grid-cols-12 gap-3 items-start py-3 border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
     <div className="col-span-1 flex justify-center">
       <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
@@ -183,12 +183,12 @@ const Section3 = () => (
     </p>
 
     <div className="rounded-lg overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
-      <ConsensusRow n="1" label="Primary signal" color={ORANGE}
+      <ConsensusRow n="1" label="Primary signal" color={BLUE}
         desc="One of the four paradigms fires. This is the trade thesis." points="+1" />
       <ConsensusRow n="2" label="Supporting signals" color={GREEN}
         desc="Three orthogonal checks: volume participation (≥80% of 20-bar avg), RSI direction (rising for entries), ADX conviction (strong + rising in TRENDING, weak + falling in RANGING). At least 2 of 3 must pass."
         points="+1 each" />
-      <ConsensusRow n="3" label="AI verdict" color={BLUE}
+      <ConsensusRow n="3" label="AI verdict" color={CYAN}
         desc="Gemma 4 26B (running on Battlemage) reads the signal context plus recent news/sentiment from Brave. A BEARISH verdict aborts the trade outright."
         points="veto only" />
       <ConsensusRow n="4" label="Score gate" color={AMBER}
@@ -264,7 +264,7 @@ const Section4 = () => (
     <div className="rounded-lg p-4 my-4" style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
       <div className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>Tiered drawdown response</div>
       <Tier pct="−8%"  label="Alert"   action="Telegram notification, no automatic action. Heads-up."   color={AMBER} />
-      <Tier pct="−15%" label="Derisk"  action="Risk-per-trade and position cap × 0.5. Recovers when DD &lt; 10%." color={ORANGE} />
+      <Tier pct="−15%" label="Derisk"  action="Risk-per-trade and position cap × 0.5. Recovers when DD &lt; 10%." color={BLUE} />
       <Tier pct="−25%" label="Halt"    action="Trading paused. Manual /resume required (re-checks DD first)." color={RED} />
     </div>
 
@@ -290,7 +290,7 @@ const Section4 = () => (
 const TuningStep = ({ n, title, body }) => (
   <div className="flex gap-3 items-start">
     <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold mt-0.5"
-         style={{ background: ORANGE + '22', color: ORANGE, border: `1px solid ${ORANGE}55` }}>{n}</div>
+         style={{ background: BLUE + '22', color: BLUE, border: `1px solid ${BLUE}55` }}>{n}</div>
     <div>
       <div className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{title}</div>
       <div className="text-xs mt-0.5" style={{ color: 'var(--text-sub)' }}>{body}</div>
@@ -408,7 +408,7 @@ const Section6 = () => (
 // ─── Section 7 — Session lifecycle (Sulla-specific) ─────────────────────────
 const SessionRow = ({ time, what }) => (
   <tr className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
-    <td className="py-2 pr-4 font-mono text-xs" style={{ color: ORANGE }}>{time}</td>
+    <td className="py-2 pr-4 font-mono text-xs" style={{ color: BLUE }}>{time}</td>
     <td className="py-2 text-xs" style={{ color: 'var(--text-sub)' }}>{what}</td>
   </tr>
 )
@@ -449,7 +449,7 @@ const Section7 = () => (
 // ─── Section 8 — Telegram ───────────────────────────────────────────────────
 const TelegramRow = ({ cmd, what }) => (
   <tr className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
-    <td className="py-2 pr-4 font-mono text-xs" style={{ color: ORANGE }}>{cmd}</td>
+    <td className="py-2 pr-4 font-mono text-xs" style={{ color: BLUE }}>{cmd}</td>
     <td className="py-2 text-xs" style={{ color: 'var(--text-sub)' }}>{what}</td>
   </tr>
 )
@@ -480,7 +480,7 @@ const Section8 = () => (
 )
 
 // ─── Section 9 — Playbook ───────────────────────────────────────────────────
-const Scenario = ({ when, then, color = ORANGE }) => (
+const Scenario = ({ when, then, color = BLUE }) => (
   <div className="rounded-lg p-4" style={{ background: 'var(--bg-elevated)', border: `1px solid ${color}33` }}>
     <div className="text-xs uppercase tracking-wider mb-2" style={{ color }}>When you see…</div>
     <div className="font-semibold text-sm mb-3" style={{ color: 'var(--text-primary)' }}>{when}</div>
@@ -497,7 +497,7 @@ const Section9 = () => (
         when="A drawdown alert (−8%) fires on Telegram"
         then={<>Don't react automatically. Pull <Code>/report</Code> and <Code>/pnl</Code> to see whether the drawdown is concentrated in 1–2 positions or spread across the book. If concentrated, check whether stops are still appropriately placed. The system has not done anything yet — this is just a heads-up.</>}
       />
-      <Scenario color={ORANGE}
+      <Scenario color={BLUE}
         when="The system is in Derisk mode (−15% DD)"
         then={<>New entries are sized at half the normal risk and half the position cap. This is automatic and self-recovering — when DD comes back inside −10%, the system returns to normal sizing. No action needed unless you want to override.</>}
       />
@@ -513,7 +513,7 @@ const Section9 = () => (
         when="You want to manually buy a position"
         then={<>Telegram: <Code>/buy AAPL 500</Code> (symbol, dollars). Sulla takes the trade at market and immediately places an ATR×2 stop. The trade is recorded with strategy = "MANUAL OVERRIDE" so the tuner doesn't pick it up. Only works during market hours.</>}
       />
-      <Scenario color={BLUE}
+      <Scenario color={CYAN}
         when="It's 3:45 PM and you're still in 3 positions"
         then={<>Don't intervene. Sulla's EOD engine fires at 3:50 PM ET and closes everything at market — that's by design. You'll get an <Code>EOD Shadow Exit</Code> message with the day-tally (per-position P&L, W/L count, net dollars, equity at bell) right after.</>}
       />
@@ -525,7 +525,7 @@ const Section9 = () => (
         when="The engine looks frozen or unresponsive"
         then={<>The dashboard healthcheck reads <Code>.engine_heartbeat</Code> mtime; stale = sick. Pull recent logs with <Code>docker compose logs sulla-engine --tail 100</Code> from <Code>~/swarm/</Code>. Once you've found the cause, the web Config page's Restart button (or <Code>/restart</Code> on Telegram) queues a clean respawn via the flag-file pattern.</>}
       />
-      <Scenario color={ORANGE}
+      <Scenario color={BLUE}
         when="You want to add or drop a symbol from the watchlist"
         then={<>Edit <Code>active_symbols</Code> in <Code>Config.yaml</Code> via the Config page. Sulla hot-reloads the watchlist each cycle — no restart needed. To drop one with an open position: close the position first (manual sell or wait for stop), then remove from the list.</>}
       />
@@ -548,7 +548,7 @@ const Term = ({ term, abbr, children }) => (
   </div>
 )
 
-const TermGroup = ({ title, color = ORANGE, children }) => (
+const TermGroup = ({ title, color = BLUE, children }) => (
   <div className="rounded-lg p-4" style={{ background: 'var(--bg-elevated)', border: `1px solid ${color}33` }}>
     <div className="text-xs uppercase tracking-wider mb-2" style={{ color }}>{title}</div>
     <div>{children}</div>
@@ -560,7 +560,7 @@ const Section10 = () => (
         subtitle="Quick definitions for terms used elsewhere in the Guide. Grouped by area; use browser Find (Ctrl/⌘-F) to jump to a specific term.">
     <div className="space-y-4">
 
-      <TermGroup title="Technical indicators" color={BLUE}>
+      <TermGroup title="Technical indicators" color={CYAN}>
         <Term term="Average Directional Index" abbr="ADX (14)">
           A 0–100 gauge of <em>trend strength</em> (not direction). Above 25–30 means a real trend
           is in place; below means the market is ranging or chopping. Sulla uses ADX as the
@@ -695,7 +695,7 @@ const Section10 = () => (
         </Term>
       </TermGroup>
 
-      <TermGroup title="Performance metrics" color={ORANGE}>
+      <TermGroup title="Performance metrics" color={BLUE}>
         <Term term="Profit Factor" abbr="PF">
           Gross winning P&amp;L ÷ gross losing P&amp;L. A PF of 1.0 = breakeven; ≥ 1.5 is healthy;
           ≥ 2.0 is excellent. The self-tuner's primary success metric.
@@ -720,7 +720,7 @@ const Section10 = () => (
         <Term term="Paradigm">
           A self-contained trading thesis with its own entry conditions, exit logic, and risk
           profile. Sulla runs four: Trend Following, Mean Reversion, Volatility Breakout,
-          Liquidity Sweep. See <a href="#paradigms" className="underline" style={{color: ORANGE}}>section 2</a>.
+          Liquidity Sweep. See <a href="#paradigms" className="underline" style={{color: BLUE}}>section 2</a>.
         </Term>
         <Term term="Regime / regime gate">
           The market's macro state (TRENDING vs RANGING) computed from ADX. The regime gate routes
@@ -728,7 +728,7 @@ const Section10 = () => (
         </Term>
         <Term term="Consensus">
           The 4-layer agreement system that must clear before any trade fires: paradigm signal +
-          supporting indicators + AI verdict + score gate. See <a href="#consensus" className="underline" style={{color: ORANGE}}>section 3</a>.
+          supporting indicators + AI verdict + score gate. See <a href="#consensus" className="underline" style={{color: BLUE}}>section 3</a>.
         </Term>
         <Term term="Multi-timeframe filter" abbr="MTF">
           A higher-timeframe (daily) sanity check on the 30-min entry signal. Blocks Trend
@@ -747,7 +747,7 @@ const Section10 = () => (
         </Term>
         <Term term="Self-tuning engine">
           Background process that measures profit factor per (symbol × paradigm) and proposes
-          bounded parameter adjustments. See <a href="#tuning" className="underline" style={{color: ORANGE}}>section 5</a>.
+          bounded parameter adjustments. See <a href="#tuning" className="underline" style={{color: BLUE}}>section 5</a>.
         </Term>
         <Term term="Validation gate">
           The 10-trade window the tuner uses to test a proposed parameter change before promoting
@@ -820,7 +820,7 @@ const Section10 = () => (
         </Term>
       </TermGroup>
 
-      <TermGroup title="Praetor / stack" color={BLUE}>
+      <TermGroup title="Praetor / stack" color={CYAN}>
         <Term term="Praetor">
           The platform — the React + FastAPI + Python stack that hosts both Sulla (TradFi) and
           Tiberius (crypto). What gets distributed.
@@ -875,7 +875,7 @@ export default function Guide() {
   return (
     <div className="p-6">
       <div className="flex items-center gap-2 mb-1">
-        <BookOpen size={20} style={{ color: ORANGE }} />
+        <BookOpen size={20} style={{ color: BLUE }} />
         <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Sulla Guide</h1>
       </div>
       <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>

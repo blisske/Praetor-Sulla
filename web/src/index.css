@@ -14,7 +14,7 @@
   --text-sub:     #94a3b8;
   --text-muted:   #64748b;
   --text-dim:     #475569;
-  --accent:       #10B981;
+  --accent:       #3B82F6;
 }
 
 :root[data-theme="light"] {
@@ -31,7 +31,7 @@
   --text-sub:     #475569;
   --text-muted:   #64748b;
   --text-dim:     #94a3b8;
-  --accent:       #10B981;
+  --accent:       #3B82F6;
 }
 
 * { box-sizing: border-box; }

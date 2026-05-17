@@ -6,7 +6,7 @@ import { LayoutDashboard, History, FlaskConical, BarChart2, Settings, BookOpen, 
 
 const GOLD      = '#c8922a'
 const GOLD_LITE = '#e8b84b'
-const GREEN     = '#10B981'
+const BLUE      = '#3B82F6'
 
 function PraetorMark({ size = 22 }) {
   return (
@@ -68,11 +68,11 @@ function Sidebar({ onClose, dark, toggle }) {
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '10px 9px 10px 12px',
                 borderRadius: 8,
-                background: 'rgba(16,185,129,0.15)',
-                color: GREEN,
+                background: 'rgba(59,130,246,0.15)',
+                color: BLUE,
                 fontWeight: 600,
                 fontSize: 14,
-                borderLeft: `3px solid ${GREEN}`,
+                borderLeft: `3px solid ${BLUE}`,
               } : {
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '10px 12px',

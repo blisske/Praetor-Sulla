@@ -5,6 +5,8 @@ import { useAuth } from '../lib/auth.jsx'
 const GOLD     = '#C8922A'
 const GOLD_LT  = '#E8B84B'
 const NAVY     = '#0b1526'
+const BLUE     = '#3B82F6'   // Sulla brand accent
+const BLUE_LT  = '#60A5FA'
 
 function PraetorMark({ size = 28 }) {
   return (
@@ -23,6 +25,53 @@ function PraetorMark({ size = 28 }) {
         fill="none" strokeLinecap="round" opacity="0.9" />
       <path d="M8 38 C13 31,21 26,30 20" stroke={GOLD} strokeWidth="1.3"
         fill="none" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  )
+}
+
+// Currency-symbol pattern overlay for the right panel.
+// Scattered glyphs of the 7 majors at varying size + opacity + rotation,
+// rendered as background ambience behind the candles. Distinct from Anton's
+// coins / Tiberius's abstract bg — this is Sulla's "what am I logging into" tell.
+function CurrencyGlyphs() {
+  // Each entry: {x, y, glyph, size, opacity, rotate}.
+  // Glyphs cover the 7 majors: € £ ¥ $ for the Unicode-friendly ones,
+  // 3-letter codes for AUD / NZD / CHF / CAD which don't have single glyphs.
+  // Coordinates are SVG viewBox 0-100 percent; preserveAspectRatio=none lets
+  // them stretch to fit the right rail at any aspect.
+  const glyphs = [
+    { x:  8, y:  18, t: '€',    s: 14, o: 0.10, r: -8 },
+    { x: 30, y:  12, t: '£',    s: 11, o: 0.08, r:  4 },
+    { x: 58, y:  20, t: '¥',    s: 16, o: 0.13, r: -3 },
+    { x: 82, y:  16, t: '$',    s: 12, o: 0.09, r:  6 },
+    { x: 18, y:  44, t: 'AUD',  s:  5, o: 0.08, r: -2 },
+    { x: 46, y:  48, t: '€',    s:  9, o: 0.07, r:  2 },
+    { x: 70, y:  42, t: 'CHF',  s:  5, o: 0.09, r:  3 },
+    { x: 90, y:  50, t: '£',    s: 10, o: 0.07, r: -5 },
+    { x: 12, y:  74, t: '¥',    s: 12, o: 0.08, r:  4 },
+    { x: 40, y:  78, t: 'NZD',  s:  4, o: 0.07, r: -3 },
+    { x: 62, y:  72, t: '$',    s: 14, o: 0.10, r:  2 },
+    { x: 86, y:  82, t: 'CAD',  s:  5, o: 0.08, r: -4 },
+    { x: 26, y:  90, t: '€',    s:  8, o: 0.06, r:  3 },
+    { x: 54, y:  92, t: '£',    s:  9, o: 0.07, r: -2 },
+  ]
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none"
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+      {glyphs.map((g, i) => (
+        <text key={i}
+          x={g.x} y={g.y}
+          fill={BLUE_LT}
+          opacity={g.o}
+          fontSize={g.s}
+          fontFamily="'Times New Roman', Georgia, serif"
+          fontWeight="700"
+          transform={`rotate(${g.r} ${g.x} ${g.y})`}
+          textAnchor="middle"
+          dominantBaseline="middle">
+          {g.t}
+        </text>
+      ))}
     </svg>
   )
 }
@@ -225,18 +274,21 @@ export default function Login() {
       {/* ── RIGHT: branded visual panel ── */}
       <div style={{
         flex: 1, position: 'relative', overflow: 'hidden',
-        background: `linear-gradient(160deg, #0f1e38 0%, ${NAVY} 40%, #060d18 100%)`,
+        background: `linear-gradient(160deg, #0b1830 0%, ${NAVY} 45%, #060d18 100%)`,
       }}>
 
-        {/* Ambient glow behind candles */}
+        {/* Currency-symbol pattern (Sulla's distinct FX-trading tell) */}
+        <CurrencyGlyphs />
+
+        {/* Ambient blue glow behind candles — Sulla brand wash */}
         <div style={{
           position: 'absolute', bottom: '-10%', left: '0', right: '0',
           height: '70%',
-          background: `radial-gradient(ellipse at 50% 100%, rgba(200,146,42,0.18) 0%, transparent 70%)`,
+          background: `radial-gradient(ellipse at 50% 100%, rgba(59,130,246,0.20) 0%, transparent 70%)`,
           pointerEvents: 'none',
         }} />
 
-        {/* Dramatic candlesticks */}
+        {/* Dramatic candlesticks (gold for warmth + cross-bot brand continuity) */}
         <DramaticCandles />
 
         {/* Top-left label */}
@@ -246,6 +298,24 @@ export default function Login() {
           color: 'rgba(200,146,42,0.70)', textTransform: 'uppercase',
         }}>
           Praetor
+        </div>
+
+        {/* Top-right Sulla mark — distinguishes from Anton/Tiberius without
+            forcing the visitor to read the bottom-left tagline */}
+        <div style={{
+          position: 'absolute', top: '34px', right: '40px',
+          display: 'flex', alignItems: 'center', gap: '10px',
+        }}>
+          <span style={{
+            fontSize: '11px', fontWeight: 700, letterSpacing: '0.22em',
+            color: BLUE_LT, textTransform: 'uppercase',
+          }}>
+            Sulla · FX
+          </span>
+          <span style={{
+            width: '24px', height: '2px',
+            background: `linear-gradient(90deg, ${BLUE}, transparent)`,
+          }} />
         </div>
 
         {/* Bottom text overlay */}
@@ -260,16 +330,16 @@ export default function Login() {
           </h2>
           <p style={{
             fontSize: '14px', color: 'rgba(255,255,255,0.55)',
-            margin: 0, lineHeight: 1.6, maxWidth: '320px',
+            margin: 0, lineHeight: 1.6, maxWidth: '340px',
           }}>
-            Multi-paradigm signal engine. AI consensus layer.
-            Session-aware execution. Disciplined compounding.
+            Seven major pairs. 24/5 global execution.
+            Multi-paradigm signals, AI consensus, disciplined compounding.
           </p>
 
-          {/* Gold accent line */}
+          {/* Blue accent line (Sulla brand) */}
           <div style={{
-            marginTop: '24px', width: '48px', height: '3px',
-            background: `linear-gradient(90deg, ${GOLD}, transparent)`,
+            marginTop: '24px', width: '64px', height: '3px',
+            background: `linear-gradient(90deg, ${BLUE}, ${BLUE_LT}33 60%, transparent)`,
             borderRadius: '2px',
           }} />
         </div>

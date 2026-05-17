@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import api from '../lib/api.js'
 import HelpTip from '../components/HelpTip.jsx'
 
-const GREEN = '#10B981'
+const BLUE = "#3B82F6"
 
 const MASTER_TIP = (
   "Sulla tunes its own parameters from live shadow performance. " +
@@ -30,7 +30,7 @@ export default function Tuning() {
   const statusColor = s => {
     if (s === 'PROMOTED_LIVE')   return '#4ade80'
     if (s === 'REJECTED')        return '#f87171'
-    if (s === 'SHADOW_PENDING')  return GREEN
+    if (s === 'SHADOW_PENDING')  return BLUE
     return 'var(--text-sub)'
   }
 
@@ -61,12 +61,12 @@ export default function Tuning() {
                 <tr key={s.id} style={{ borderBottom:'1px solid var(--border-row)' }}>
                   <td className="px-3 py-2.5 font-medium" style={{ color:'var(--text-primary)' }}>{s.symbol}</td>
                   <td className="px-3 py-2.5 text-xs" style={{ color:'var(--text-sub)' }}>{s.parameter}</td>
-                  <td className="px-3 py-2.5" style={{ color:GREEN, fontWeight:600 }}>{s.candidate_value}</td>
+                  <td className="px-3 py-2.5" style={{ color:BLUE, fontWeight:600 }}>{s.candidate_value}</td>
                   <td className="px-3 py-2.5" style={{ color:'var(--text-sub)' }}>{s.baseline_value}</td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background:'var(--bg-elevated)', minWidth:60 }}>
-                        <div className="h-full rounded-full" style={{ width:`${Math.min(100,(s.shadow_trades_completed/s.shadow_trades_required)*100)}%`, background:GREEN }} />
+                        <div className="h-full rounded-full" style={{ width:`${Math.min(100,(s.shadow_trades_completed/s.shadow_trades_required)*100)}%`, background:BLUE }} />
                       </div>
                       <span className="text-xs" style={{ color:'var(--text-muted)' }}>{s.shadow_trades_completed}/{s.shadow_trades_required}</span>
                     </div>
@@ -105,7 +105,7 @@ export default function Tuning() {
                   <td className="px-4 py-3 font-medium" style={{ color:'var(--text-primary)' }}>{r.symbol}</td>
                   <td className="px-4 py-3 text-xs" style={{ color:'var(--text-sub)' }}>{r.parameter}</td>
                   <td className="px-4 py-3" style={{ color:'var(--text-muted)' }}>{r.old_value}</td>
-                  <td className="px-4 py-3 font-medium" style={{ color:GREEN }}>{r.new_value}</td>
+                  <td className="px-4 py-3 font-medium" style={{ color:BLUE }}>{r.new_value}</td>
                   <td className="px-4 py-3 text-xs" style={{ color:'var(--text-sub)' }}>{r.metric_name}: {r.metric_value?.toFixed(3)}</td>
                   <td className="px-4 py-3">
                     <span style={{ fontSize:11, fontWeight:600, color:statusColor(r.status), display:'inline-flex', alignItems:'center' }}>

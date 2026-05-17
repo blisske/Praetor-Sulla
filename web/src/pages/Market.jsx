@@ -7,7 +7,7 @@ import {
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import HelpTip from '../components/HelpTip.jsx'
 
-const GREEN     = '#10B981'
+const BLUE     = '#3B82F6'
 const ADX_BLUE  = '#60a5fa'
 const TIMEFRAMES = [
   { label:'2h',  hours:2  },
@@ -33,9 +33,9 @@ function TrendIcon({ trend }) {
 
 const SERIES_COLORS = {
   Price:  null,   // dynamic: green if up, red if down
-  RSI:    GREEN,
+  RSI:    BLUE,
   ADX:    ADX_BLUE,
-  Volume: GREEN,
+  Volume: BLUE,
 }
 
 function MultiSeriesChart({ data, active, isUp }) {
@@ -132,7 +132,7 @@ function MultiSeriesChart({ data, active, isUp }) {
 
         {/* Volume bars */}
         {active.includes('Volume') && (
-          <Bar yAxisId="vol" dataKey="volume" fill={GREEN} fillOpacity={0.35} isAnimationActive={false} />
+          <Bar yAxisId="vol" dataKey="volume" fill={BLUE} fillOpacity={0.35} isAnimationActive={false} />
         )}
 
         {/* Price line */}
@@ -142,7 +142,7 @@ function MultiSeriesChart({ data, active, isUp }) {
 
         {/* RSI line */}
         {active.includes('RSI') && (
-          <Line yAxisId="osc" type="monotone" dataKey="rsi" stroke={GREEN} strokeWidth={1.5} dot={false} activeDot={{ r:3, fill:GREEN }} />
+          <Line yAxisId="osc" type="monotone" dataKey="rsi" stroke={BLUE} strokeWidth={1.5} dot={false} activeDot={{ r:3, fill:BLUE }} />
         )}
 
         {/* ADX line */}
@@ -225,7 +225,7 @@ export default function Market() {
           {symbols.map(s => (
             <button key={s} onClick={() => setSelected(s)}
               className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-              style={selected === s ? { background:GREEN, color:'#fff' } : { background:'var(--bg-elevated)', color:'var(--text-sub)' }}>
+              style={selected === s ? { background:BLUE, color:'#fff' } : { background:'var(--bg-elevated)', color:'var(--text-sub)' }}>
               {s}
             </button>
           ))}
@@ -254,7 +254,7 @@ export default function Market() {
               {/* Multi-select chart toggles */}
               <div className="flex gap-1.5">
                 {ALL_SERIES.map(s => {
-                  const color = s === 'Price' ? (isUp ? '#22c55e' : '#ef4444') : s === 'ADX' ? ADX_BLUE : GREEN
+                  const color = s === 'Price' ? (isUp ? '#22c55e' : '#ef4444') : s === 'ADX' ? ADX_BLUE : BLUE
                   const isActive = active.includes(s)
                   return (
                     <button key={s} onClick={() => toggleSeries(s)}
@@ -290,7 +290,7 @@ export default function Market() {
             <div className="text-2xl font-bold mb-2" style={{ color:'var(--text-primary)' }}>{sym.rsi?.toFixed(1)}</div>
             <div className="flex items-center gap-2">
               <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background:'var(--bg-elevated)' }}>
-                <div className="h-full rounded-full" style={{ width:`${Math.min(100,Math.max(0,sym.rsi))}%`, background: sym.rsi > 70 ? '#f59e0b' : sym.rsi < 30 ? '#22c55e' : GREEN }} />
+                <div className="h-full rounded-full" style={{ width:`${Math.min(100,Math.max(0,sym.rsi))}%`, background: sym.rsi > 70 ? '#f59e0b' : sym.rsi < 30 ? '#22c55e' : BLUE }} />
               </div>
               <span className="text-xs w-8 text-right" style={{ color:'var(--text-sub)' }}>{sym.rsi?.toFixed(1)}</span>
             </div>
@@ -303,7 +303,7 @@ export default function Market() {
             </div>
             <div className="text-2xl font-bold mb-2" style={{ color:'var(--text-primary)' }}>{sym.adx?.toFixed(1)}</div>
             <div className="flex-1 h-1.5 rounded-full overflow-hidden mt-1" style={{ background:'var(--bg-elevated)' }}>
-              <div className="h-full rounded-full" style={{ width:`${Math.min(100,(sym.adx/50)*100)}%`, background:GREEN }} />
+              <div className="h-full rounded-full" style={{ width:`${Math.min(100,(sym.adx/50)*100)}%`, background:BLUE }} />
             </div>
             <div className="text-xs mt-2" style={{ color:'var(--text-dim)' }}>{sym.adx > 25 ? 'Trending' : 'Ranging'}</div>
           </div>
@@ -357,10 +357,10 @@ export default function Market() {
                 const ratioColor = ratio === null ? 'var(--text-dim)' : ratio >= 1.0 ? '#22c55e' : '#ef4444'
                 return (
                   <tr key={s} onClick={() => setSelected(s)} className="cursor-pointer transition-colors"
-                    style={{ borderBottom:'1px solid var(--border-row)', background: selected === s ? 'rgba(16,185,129,0.08)' : 'transparent' }}
+                    style={{ borderBottom:'1px solid var(--border-row)', background: selected === s ? 'rgba(59,130,246,0.08)' : 'transparent' }}
                     onMouseEnter={e => { if (selected !== s) e.currentTarget.style.background = 'var(--bg-elevated)' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = selected === s ? 'rgba(16,185,129,0.08)' : 'transparent' }}>
-                    <td className="px-4 py-3 font-medium" style={{ color: selected === s ? GREEN : 'var(--text-primary)' }}>{s}</td>
+                    onMouseLeave={e => { e.currentTarget.style.background = selected === s ? 'rgba(59,130,246,0.08)' : 'transparent' }}>
+                    <td className="px-4 py-3 font-medium" style={{ color: selected === s ? BLUE : 'var(--text-primary)' }}>{s}</td>
                     <td className="px-4 py-3" style={{ color:'var(--text-primary)' }}>${d.price?.toLocaleString(undefined, { maximumFractionDigits:2 })}</td>
                     <td className="px-4 py-3"><RegimeBadge regime={d.regime} /></td>
                     <td className="px-4 py-3"><TrendIcon trend={d.trend} /></td>

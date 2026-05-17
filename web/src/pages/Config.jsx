@@ -3,7 +3,7 @@ import api from '../lib/api.js'
 import { Save, RotateCcw, AlertTriangle, RefreshCw, Plus, X } from 'lucide-react'
 import HelpTip from '../components/HelpTip.jsx'
 
-const GREEN = '#10B981'
+const BLUE = '#3B82F6'
 
 function Field({ label, value, onChange, type = 'text', hint, help }) {
   return (
@@ -13,7 +13,7 @@ function Field({ label, value, onChange, type = 'text', hint, help }) {
       </label>
       <input type={type} value={value ?? ''} onChange={e => onChange(type === 'number' ? parseFloat(e.target.value) : e.target.value)}
         style={{ width:'100%', background:'var(--bg-elevated)', border:'1px solid var(--border-input)', borderRadius:'0.5rem', padding:'0.5rem 0.75rem', color:'var(--text-primary)', fontSize:'0.875rem', outline:'none', transition:'border-color 0.15s', fontFamily:'inherit' }}
-        onFocus={e => e.target.style.borderColor = GREEN}
+        onFocus={e => e.target.style.borderColor = BLUE}
         onBlur={e => e.target.style.borderColor = 'var(--border-input)'} />
       {hint && <p style={{ fontSize:'0.68rem', color:'var(--text-dim)', marginTop:'0.25rem' }}>{hint}</p>}
     </div>
@@ -27,7 +27,7 @@ function Toggle({ label, value, onChange, hint, help }) {
         <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.875rem', color:'var(--text-sub)' }}>{label}{help && <HelpTip text={help} />}</div>
         {hint && <div style={{ fontSize:'0.72rem', color:'var(--text-dim)', marginTop:2 }}>{hint}</div>}
       </div>
-      <button onClick={() => onChange(!value)} style={{ position:'relative', width:44, height:24, borderRadius:12, border:'none', cursor:'pointer', background: value ? GREEN : 'var(--bg-elevated)', transition:'background 0.2s', flexShrink:0 }}>
+      <button onClick={() => onChange(!value)} style={{ position:'relative', width:44, height:24, borderRadius:12, border:'none', cursor:'pointer', background: value ? BLUE : 'var(--bg-elevated)', transition:'background 0.2s', flexShrink:0 }}>
         <span style={{ position:'absolute', top:2, left:2, width:20, height:20, background:'#fff', borderRadius:'50%', transition:'transform 0.2s', transform: value ? 'translateX(20px)' : 'translateX(0)' }} />
       </button>
     </div>
@@ -129,15 +129,15 @@ export default function Config() {
           )}
           <button onClick={restart} disabled={restarting}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-            style={{ background:'var(--bg-elevated)', border:`1px solid rgba(16,185,129,0.50)`, color:GREEN }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.10)'}
+            style={{ background:'var(--bg-elevated)', border:`1px solid rgba(59,130,246,0.50)`, color:BLUE }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.10)'}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-elevated)'}>
             <RefreshCw size={14} className={restarting ? 'animate-spin' : ''} />
             {restarting ? 'Restarting...' : 'Restart Service'}
           </button>
           <button onClick={save} disabled={!isDirty}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-            style={{ background:GREEN, color:'#fff', border:'none' }}>
+            style={{ background:BLUE, color:'#fff', border:'none' }}>
             <Save size={14} />
             {saved ? 'Saved!' : 'Save Changes'}
           </button>
@@ -145,7 +145,7 @@ export default function Config() {
       </div>
 
       {error && <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3" style={{ background:'rgba(239,68,68,0.09)', border:'1px solid rgba(239,68,68,0.25)', color:'#f87171' }}><AlertTriangle size={14} /> {error}</div>}
-      {isDirty && <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3" style={{ background:'rgba(16,185,129,0.09)', border:'1px solid rgba(16,185,129,0.25)', color:GREEN }}><AlertTriangle size={14} /> Unsaved changes — restart service after saving</div>}
+      {isDirty && <div className="flex items-center gap-2 text-sm rounded-lg px-4 py-3" style={{ background:'rgba(59,130,246,0.09)', border:'1px solid rgba(59,130,246,0.25)', color:BLUE }}><AlertTriangle size={14} /> Unsaved changes — restart service after saving</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
@@ -279,9 +279,9 @@ export default function Config() {
           </h2>
           <div className="flex flex-wrap gap-2">
             {symbols.map(sym => (
-              <span key={sym} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(16,185,129,0.12)', color:GREEN, border:'1px solid rgba(16,185,129,0.25)', padding:'4px 10px', borderRadius:6, fontSize:12, fontWeight:600 }}>
+              <span key={sym} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(59,130,246,0.12)', color:BLUE, border:'1px solid rgba(59,130,246,0.25)', padding:'4px 10px', borderRadius:6, fontSize:12, fontWeight:600 }}>
                 {sym}
-                <button onClick={() => removeSymbol(sym)} style={{ color:'rgba(16,185,129,0.6)', cursor:'pointer', border:'none', background:'none', padding:0, display:'flex' }}>
+                <button onClick={() => removeSymbol(sym)} style={{ color:'rgba(59,130,246,0.6)', cursor:'pointer', border:'none', background:'none', padding:0, display:'flex' }}>
                   <X size={12} />
                 </button>
               </span>
@@ -292,10 +292,10 @@ export default function Config() {
               onKeyDown={e => e.key === 'Enter' && addSymbol()}
               placeholder="Add symbol (e.g. TSLA)"
               style={{ flex:1, background:'var(--bg-elevated)', border:'1px solid var(--border-input)', borderRadius:'0.5rem', padding:'0.5rem 0.75rem', color:'var(--text-primary)', fontSize:'0.875rem', outline:'none', fontFamily:'inherit' }}
-              onFocus={e => e.target.style.borderColor = GREEN}
+              onFocus={e => e.target.style.borderColor = BLUE}
               onBlur={e => e.target.style.borderColor = 'var(--border-input)'} />
             <button onClick={addSymbol} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-              style={{ background:GREEN, color:'#fff', border:'none' }}>
+              style={{ background:BLUE, color:'#fff', border:'none' }}>
               <Plus size={14} /> Add
             </button>
           </div>
