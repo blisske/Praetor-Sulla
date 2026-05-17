@@ -26,10 +26,14 @@ import os
 import sys
 import time
 import signal
+import random
+import datetime
 import asyncio
 import logging
 from html import escape as html_escape
 from pathlib import Path
+
+import pytz
 
 from telegram import Update, BotCommand
 from telegram.ext import (
@@ -63,7 +67,39 @@ secrets = config_manager.load_secrets()
 _shutting_down = False
 _bot = None             # Telegram Bot instance; None until main_async wires it
 _kill_armed_at = 0.0    # Unix ts when /kill was sent; /confirm_kill must follow within 60s
+_last_reveille_day = None  # date(year, month, day) of the last reveille; one per day
 KILL_WINDOW_SECONDS = 60
+
+
+# Rotating flavor lines for the daily reveille. FX trades 24/5 (Sun 17:00 ET
+# → Fri 17:00 ET), so the equity "OPENING BELL" framing doesn't fit — these
+# are tuned for the global / 24-hour nature of the FX market. One picked at
+# random each morning so the message doesn't get stale.
+REVEILLE_LINES = [
+    # Roman / imperial (consistent with the Praetor swarm naming)
+    "The forum trades in seven tongues. Sulla listens to them all.",
+    "Dawn over the empire. The ledger turns.",
+    "Ave, Caesar. Another orbit complete.",
+    "The legions march. The pips fall in line.",
+    "While Rome slept, the markets moved. So did I.",
+    "Tempus fugit. The majors endure.",
+    "No rest for Caesar's machine.",
+    # FX-native
+    "London bid. New York offered. Sulla scanning.",
+    "Three sessions, seven pairs, one engine.",
+    "The dollar leg never sleeps. Neither do I.",
+    "Twenty-four hours of liquidity. Five days of opportunity.",
+    "Tokyo wakes. London takes. New York closes.",
+    "The cross-currents are flowing. I'm reading the tape.",
+    "Pip-by-pip, the spread between intent and execution.",
+    "Carry trades carry. Sulla follows.",
+    # Wry / dry
+    "Somewhere, a candle is forming. I'll know.",
+    "Reveille, citizen. Coffee optional. Vigilance mandatory.",
+    "You slept. I did not.",
+    "Still here. Still scanning. Still unimpressed by most setups.",
+    "Markets digest yesterday's headlines so I don't have to.",
+]
 
 
 # ─── Signals + flag-file plumbing ───────────────────────────────────────────
@@ -115,6 +151,40 @@ async def _notify(html: str) -> None:
         )
     except Exception as e:
         logger.warning(f"Telegram notify failed: {e}")
+
+
+async def _maybe_send_reveille() -> None:
+    """
+    Daily "good morning" greeting. Fires once per calendar day after 07:30 in
+    the user's local Mountain time IF the FX market is currently open. This
+    matches Anton/Tiberius's once-per-day cadence so all three bots feel
+    consistent — but Sulla's guard is FX-specific (closed Sat all-day,
+    closed Sun before 17:00 ET, closed Fri after 17:00 ET) per
+    execution.is_market_open().
+    """
+    global _last_reveille_day
+    if _bot is None:
+        return
+    if not execution.is_market_open():
+        return  # FX market closed (weekend) — no greeting
+
+    mt_tz = pytz.timezone("America/Denver")
+    now_mt = datetime.datetime.now(mt_tz)
+    today = now_mt.date()
+
+    # 07:30 MT is roughly 09:30 ET — by then NY session has been open ~90 min
+    # and London/NY overlap is at its peak. The user's typical wake-up window.
+    after_7_30 = (now_mt.hour > 7) or (now_mt.hour == 7 and now_mt.minute >= 30)
+    if not after_7_30 or _last_reveille_day == today:
+        return
+
+    line = random.choice(REVEILLE_LINES)
+    await _notify(
+        f"📈 <b>DAILY REVEILLE</b>\n"
+        f"{line}\n"
+        f"Sulla is ONLINE and scanning the seven majors."
+    )
+    _last_reveille_day = today
 
 
 # ─── Symbol parsing helpers ─────────────────────────────────────────────────
@@ -953,6 +1023,10 @@ async def trading_loop_async() -> None:
 
         logger.info(f"--- CYCLE START | symbols: {len(symbols)} | tf: {timeframe} ---")
         try:
+            await _maybe_send_reveille()
+        except Exception as e:
+            logger.warning(f"Reveille check failed: {e}")
+        try:
             await _run_cycle(config, symbols, timeframe)
         except Exception as e:
             logger.error(f"Cycle failed: {e}", exc_info=True)
@@ -1033,7 +1107,11 @@ async def main_async() -> None:
     except Exception as e:
         logger.warning(f"set_my_commands failed (non-fatal): {e}")
 
-    # Boot announcement
+    # Boot announcement. The boot greeting and the daily reveille serve the
+    # same "Sulla is alive" purpose, so when boot fires we suppress the
+    # reveille for the rest of the day (otherwise a mid-morning restart
+    # would deliver two back-to-back greetings).
+    global _last_reveille_day
     try:
         await app.bot.send_message(
             chat_id=telegram_user,
@@ -1044,6 +1122,8 @@ async def main_async() -> None:
             ),
             parse_mode='HTML',
         )
+        # Boot delivered → swallow today's reveille
+        _last_reveille_day = datetime.datetime.now(pytz.timezone("America/Denver")).date()
     except Exception as e:
         logger.warning(f"Boot announcement failed: {e}")
 
