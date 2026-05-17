@@ -76,38 +76,102 @@ function CurrencyGlyphs() {
   )
 }
 
-// Large decorative candlesticks for the right panel
-function DramaticCandles() {
-  const candles = [
-    { x: 4,  bodyY: 55, bodyH: 30, wickT: 28, wickB: 90,  bull: false, op: 0.18 },
-    { x: 14, bodyY: 30, bodyH: 45, wickT: 12, wickB: 85,  bull: true,  op: 0.28 },
-    { x: 24, bodyY: 50, bodyH: 25, wickT: 38, wickB: 82,  bull: false, op: 0.22 },
-    { x: 34, bodyY: 20, bodyH: 55, wickT:  5, wickB: 88,  bull: true,  op: 0.40 },
-    { x: 44, bodyY: 40, bodyH: 35, wickT: 25, wickB: 92,  bull: false, op: 0.20 },
-    { x: 54, bodyY: 15, bodyH: 65, wickT:  2, wickB: 90,  bull: true,  op: 0.55 },
-    { x: 64, bodyY: 45, bodyH: 30, wickT: 30, wickB: 86,  bull: false, op: 0.25 },
-    { x: 74, bodyY: 10, bodyH: 72, wickT:  0, wickB: 95,  bull: true,  op: 0.70 },
-    { x: 84, bodyY: 35, bodyH: 40, wickT: 20, wickB: 88,  bull: false, op: 0.30 },
-    { x: 94, bodyY:  5, bodyH: 80, wickT:  0, wickB: 98,  bull: true,  op: 0.85 },
+// Multi-pair chart trace — seven smooth Bezier curves in graduated blues,
+// one per major. Replaces the gold candlestick decoration from earlier; the
+// candle motif appears on Anton's login too and was making the three bots'
+// login pages bleed into one another visually. This component is unique to
+// Sulla and reads as "this is the multi-asset FX system" at a glance.
+//
+// Each line is a cubic-bezier path traversing x=0 to x=100 in the SVG
+// viewBox. We hand-tune Y values per line so the curves feel like distinct
+// price-action shapes (some trending, some choppy, some sideways) rather
+// than uniform sine waves. Stroke width / opacity / color form a depth
+// hierarchy: front lines pop, back lines recede.
+function MultiPairChartTrace() {
+  // Color palette graduated from background to foreground. The two lines
+  // tagged `prominent: true` get a glow effect and a "current price" dot.
+  const lines = [
+    // Back layer — deepest blues, lowest opacity. The macro tape.
+    { name: 'NZD/USD', d: 'M 0 38 C 18 36, 32 42, 50 39 S 78 33, 100 30',
+      color: '#1E3A8A', width: 0.6, opacity: 0.30, prominent: false },
+    { name: 'USD/CAD', d: 'M 0 72 C 16 68, 30 73, 48 70 S 76 78, 100 75',
+      color: '#1E40AF', width: 0.7, opacity: 0.35, prominent: false },
+
+    // Mid layer — deep but readable blues.
+    { name: 'AUD/USD', d: 'M 0 56 C 14 60, 28 51, 44 58 S 70 65, 100 60',
+      color: '#2563EB', width: 0.9, opacity: 0.50, prominent: false },
+    { name: 'USD/CHF', d: 'M 0 28 C 18 30, 36 24, 54 28 S 80 35, 100 32',
+      color: '#3B82F6', width: 0.9, opacity: 0.55, prominent: false },
+
+    // Front layer — brand-blue mid-tone. The pairs in motion.
+    { name: 'GBP/USD', d: 'M 0 64 C 14 58, 30 70, 48 62 S 76 50, 100 45',
+      color: '#60A5FA', width: 1.1, opacity: 0.75, prominent: false },
+
+    // Hero layer — the two prominent lines with glow + endpoint dots.
+    // EUR/USD: the most-traded pair, soft cyan-blue (matches the brand
+    // accent + the Guide's CYAN paradigm color), gentle uptrend.
+    { name: 'EUR/USD', d: 'M 0 48 C 18 44, 36 52, 56 44 S 82 38, 100 33',
+      color: '#06B6D4', width: 1.5, opacity: 0.85, prominent: true },
+
+    // USD/JPY: the carry-trade staple, electric blue, slight downtrend.
+    { name: 'USD/JPY', d: 'M 0 18 C 16 22, 30 16, 48 20 S 76 12, 100 18',
+      color: '#3B82F6', width: 1.5, opacity: 0.90, prominent: true },
   ]
+
   return (
     <svg viewBox="0 0 100 100" preserveAspectRatio="none"
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-      {candles.map((c, i) => (
-        <g key={i} opacity={c.op}>
-          {/* Wick */}
-          <line
-            x1={c.x + 3.5} y1={c.wickT}
-            x2={c.x + 3.5} y2={c.wickB}
-            stroke={GOLD} strokeWidth="0.8" />
-          {/* Body */}
-          <rect
-            x={c.x} y={c.bodyY} width={7} height={c.bodyH}
-            fill={c.bull ? GOLD : 'none'}
-            stroke={GOLD} strokeWidth="0.6"
-            rx="0.3" />
-        </g>
-      ))}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
+                pointerEvents: 'none' }}>
+      <defs>
+        {/* Soft glow filter for the two hero lines */}
+        <filter id="line-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="0.8" result="blurred" />
+          <feMerge>
+            <feMergeNode in="blurred" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
+      {lines.map((line, i) => {
+        // Endpoint dot — the last (x, y) point in the Bezier path. We could
+        // parse the path but it's easier to hand-stamp here so the dot
+        // sits exactly where the line terminates.
+        const endpoints = {
+          'NZD/USD': { x: 100, y: 30 },
+          'USD/CAD': { x: 100, y: 75 },
+          'AUD/USD': { x: 100, y: 60 },
+          'USD/CHF': { x: 100, y: 32 },
+          'GBP/USD': { x: 100, y: 45 },
+          'EUR/USD': { x: 100, y: 33 },
+          'USD/JPY': { x: 100, y: 18 },
+        }
+        const ep = endpoints[line.name] || { x: 100, y: 50 }
+
+        return (
+          <g key={i} opacity={line.opacity}>
+            <path
+              d={line.d}
+              stroke={line.color}
+              strokeWidth={line.width}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              filter={line.prominent ? 'url(#line-glow)' : undefined}
+            />
+            {/* "Current price" dot at the right edge for the hero lines.
+                Tiny glowing pip indicating "live data, this is moving." */}
+            {line.prominent && (
+              <>
+                <circle cx={ep.x} cy={ep.y} r={1.2} fill={line.color}
+                        filter="url(#line-glow)" />
+                <circle cx={ep.x} cy={ep.y} r={0.5} fill="#fff" opacity={0.9} />
+              </>
+            )}
+          </g>
+        )
+      })}
     </svg>
   )
 }
@@ -288,8 +352,10 @@ export default function Login() {
           pointerEvents: 'none',
         }} />
 
-        {/* Dramatic candlesticks (gold for warmth + cross-bot brand continuity) */}
-        <DramaticCandles />
+        {/* Multi-pair chart trace — seven smooth Bezier curves in graduated
+            blues, one per major. Replaces Anton's gold-candle motif so the
+            Sulla login reads as distinctly FX, not a TradFi recolor. */}
+        <MultiPairChartTrace />
 
         {/* Top-left label */}
         <div style={{
