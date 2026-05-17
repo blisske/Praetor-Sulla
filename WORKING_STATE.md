@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-17 (Phase 4 — macro calendar blackout via ForexFactory feed)
+> Last updated: 2026-05-17 (Phase 5 — FX Guide page rewrite)
 
 ---
 
@@ -9,7 +9,7 @@
 
 | Item | Value |
 |---|---|
-| Phase | **4 — Macro calendar blackout active** |
+| Phase | **5 — FX Guide page rewritten (operator docs complete)** |
 | Engine mode | Full 5-min cycle: indicator fetch → shadow exit engine → 4-layer consensus → shadow buy/sell against the $10K paper ledger. No Oanda orders (shadow-only by design). |
 | Broker | Oanda v20 REST — client written, awaiting `OANDA_API_TOKEN` + `OANDA_ACCOUNT_ID` in `~/swarm/sulla/.env` |
 | Universe | EUR/USD, GBP/USD, AUD/USD, NZD/USD, USD/JPY, USD/CHF, USD/CAD (7 majors, hot-reloaded from Config.yaml each cycle) |
@@ -630,6 +630,117 @@ Minutes blocks ALL USD-leg pairs (6 of 7 majors) for three hours.
 - All 7 majors clear right now (weekend)
 - Tuesday May 19 will be the first real-world fire of the blackout
   logic on GBP/USD and USD/CAD pairs
+
+---
+
+---
+
+## Phase 5 — FX Guide Page Rewrite (2026-05-17)
+
+The dashboard's Guide tab was inherited from Anton's TradFi guide via the
+Phase 1 sed sweep (Anton → Sulla identifier rename). Content stayed
+equity-centric: PDT references, US session hours, earnings blackout,
+shares-based sizing, "TradFi" framing throughout. Phase 5 is a clean
+rewrite for FX context.
+
+### What landed
+
+- **`web/src/pages/Guide.jsx` (FULL REWRITE)** — ~830 lines, 11 sections,
+  structurally mirrors the Tiberius / Anton guides but with FX-specific
+  content throughout.
+
+  Section list:
+  1. **What Sulla does** — overview, unleveraged-by-design framing,
+     five pillars (added "Macro-event blackout" + "Pip-aware sizing" to
+     Anton's three)
+  2. **The seven majors** (NEW) — per-pair characterization card grid
+     (EUR/USD "fiber", GBP/USD "cable", USD/JPY "ninja", USD/CHF
+     "swissy", AUD/USD "aussie", USD/CAD "loonie", NZD/USD "kiwi") with
+     each pair's typical behavior + sensitivity
+  3. **The four trading paradigms** — same TF/MR/VB/LS architecture, FX-
+     specific entry examples (currency trends last longer than equity
+     trends; cable's UK-news gaps; carry-trade behavior of USD/JPY)
+  4. **The 2+1+1 consensus** — same layers; FX-tuned "why this matters"
+     callout (FX is the most algo-saturated market on Earth)
+  5. **Risk management** — Sulla-specific numbers (5% paper / 2% live,
+     12% cap, 5 max). Added a callout box for the unleveraged-by-design
+     principle (Oanda offers 50:1 retail leverage; Sulla deliberately
+     ignores it). Removed Anton's PDT/cash-account section + EOD force-
+     exit + earnings blackout.
+  6. **Self-tuning** — same lifecycle; recalibrated patience math
+     (7 pairs × 4 paradigms = 28 slots, multi-month sweep)
+  7. **Reading the dashboard** — Anton's panels carried over; added a
+     note on JPY-pair display (3dp vs 5dp); pointed at /calendar for
+     macro-blackout visibility (dashboard banner is planned for Phase 5+)
+  8. **Macro-event blackout** (NEW Phase 4 content) — what it does, data
+     source (ForexFactory), refresh cadence, trigger filter, window
+     defaults, per-currency pair selection. Side-by-side grid of
+     "Headline events per currency" + "What it does NOT do (yet)" so
+     the operator knows force-exit isn't included.
+  9. **Telegram commands** — updated for Sulla's surface: added
+     /calendar row, dropped /protect (no naked stops in shadow mode)
+     and /apply (no ratchet-proposal flow), changed argument names
+     (`PAIR USD` not `ASSET USD`)
+  10. **Playbook** — 8 FX-flavored scenarios (drawdown tiers, manual
+      buy via `/buy EUR/USD`, macro event approach, watchlist add/drop,
+      shadow→Oanda-practice flip). Drops Anton's EOD scenarios + cash-
+      account scenarios.
+  11. **Glossary** (FULL REWRITE) — five groups:
+      · **FX mechanics** (NEW): pip, pipette, lot, base/quote, bid/ask/
+        spread, USD-quote vs USD-base pair, weekend gap
+      · **Technical indicators** — same as Anton, lightly reworded
+      · **Macro events** (NEW): NFP, FOMC, CPI, ECB, BoJ, ForexFactory
+        feed
+      · **System concepts** — same architecture terms; added macro
+        blackout entry
+      · **Operational states** — shadow vs live; live mode flagged as
+        "planned" because Phase 6 (Oanda order submission) isn't built
+      · **Praetor / stack** — Sulla / Anton / Tiberius cross-references
+        updated; Battlemage host described accurately
+
+- **Color palette unchanged**: Sulla brand BLUE (#3B82F6) is the section
+  accent; semantic colors preserved (GREEN MR, AMBER LS, RED halt, CYAN
+  VB — the renamed-from-BLUE indicator color from Phase 1).
+
+- **TOC sidebar** updated with the new 11-entry structure; sticky on
+  large screens.
+
+### Verification
+
+Bundle inspected post-build. All FX-distinctive strings present:
+```
+"seven majors":      1
+"Macro-event blackout": 1
+"ForexFactory":      1
+"fiber":             1
+"ninja":             1
+"swissy":            1
+"Aussie":            1
+"loonie":            1
+"kiwi":              1
+"unleveraged":       1
+"pipette":           1
+```
+
+No Anton-era content surviving (no "TradFi", "PDT", "EOD force-exit",
+"earnings blackout", "9:30 AM" references in Guide content).
+
+### What did NOT land
+
+- **Dashboard macro-blackout banner** — the Guide notes that the
+  /report Telegram command surfaces active blackouts but the web
+  Market page doesn't. That's a small UI add (planned for a Phase 5+
+  iteration); for now `/calendar` is the canonical view.
+
+### Operational state at handoff
+
+- Guide page live at `https://sulla.blisske.hopto.org/guide` and
+  `http://192.168.0.135:8085/guide`
+- All four containers healthy
+- Trading loop + Telegram bot + macro blackout all running concurrently
+- Tuesday May 19 still queued as the first real-world macro-blackout
+  fire (GBP/USD around Claimant Count 06:00 UTC, USD/CAD around CPI
+  12:30 UTC)
 
 ---
 
