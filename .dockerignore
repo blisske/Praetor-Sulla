@@ -1,0 +1,76 @@
+# Build context hygiene — anything listed here is invisible to `docker build`.
+# Goals: small build context (fast uploads to the daemon), no secrets baked
+# into images, no host-specific state confusing the engine.
+
+# --- Python build artifacts and venv ---
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Frontend build artifacts ---
+# node_modules is recreated by `npm ci` inside the web build stage.
+# dist/ is regenerated; never copy a host-built dist/ into the image.
+web/node_modules/
+web/dist/
+
+# --- Runtime state (must never be baked into an image) ---
+# Real DB lives at the bind mount, demo DB is the EXCEPTION below.
+*.db
+*.db-shm
+*.db-wal
+!core/demo_data.db
+core/anton_data_archive_*.db
+
+# --- Backup/temp files ---
+*.bak
+*.bak.*
+*.tmp
+*.swp
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Secrets ---
+# .env contents arrive via compose env_file: at runtime, never the image.
+.env
+.env.*
+
+# --- Backtest artifacts ---
+# Caches and generated reports — large, regenerable, host-specific.
+scripts/backtest_cache/
+scripts/backtest_results/
+
+# --- Git ---
+.git/
+.gitignore
+.gitattributes
+
+# --- Editor / OS noise ---
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# --- Docs that don't need to ship in the image ---
+*.md
+!README.md
+CLAUDE.md
+WORKING_STATE.md
+MIGRATION_NOTES.md
+ANTON_PIVOT_AUDIT.md
+AGGRESSIVE_BUILD_SUMMARY.md
+*_HANDOFF.md
+
+# --- Container artifacts (no recursion) ---
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml

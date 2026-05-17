@@ -1,0 +1,141 @@
+# Sulla — three-container stack.
+#
+# Run from the swarm root (~/swarm/), which `include:`s this file alongside
+# Anton, Tiberius, Milton, and Fixit. Running compose from ~/swarm/sulla/repo/
+# directly creates a different compose project that collides with the
+# swarm-managed container_name declarations — don't do it.
+#
+# Host prereqs (one-time):
+#   1. mkdir -p ~/swarm/sulla/data
+#   2. cp /path/to/Config.yaml ~/swarm/sulla/data/Config.yaml
+#   3. Create ~/swarm/sulla/.env with the runtime secrets (Oanda token + account,
+#      Telegram, JWT, bcrypt password hashes)
+
+services:
+
+  # ─── Trading daemon + Telegram bot ───────────────────────────────────────
+  sulla-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: engine
+    image: sulla-engine:latest
+    container_name: sulla-engine
+    restart: unless-stopped
+    init: true                          # docker injects tini as PID 1
+    env_file:
+      - ${SULLA_ENV_FILE:-./.env}       # secrets — never committed
+    environment:
+      AGENT_NAME:         sulla
+      SQLITE_PATH:        /app/data/sulla.db
+      CONFIG_PATH:        /app/data/Config.yaml
+      RESTART_FLAG_PATH:  /app/data/.restart_engine
+      HEARTBEAT_PATH:     /app/data/.engine_heartbeat
+      LMSTUDIO_BASE_URL:  ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      PYTHONUNBUFFERED:   "1"
+      TZ:                 ${TZ:-America/Denver}
+    volumes:
+      # SQLite + Config.yaml + restart flag + heartbeat all live in one
+      # shared mount so the API container can see them too. Config.yaml
+      # being on the bind mount means edits survive image rebuilds.
+      - ${SULLA_DATA_DIR:-./data}:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sulla-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─── FastAPI dashboard backend ───────────────────────────────────────────
+  sulla-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    image: sulla-api:latest
+    container_name: sulla-api
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ${SULLA_ENV_FILE:-./.env}
+    environment:
+      AGENT_NAME:         sulla
+      AGENT_HOST:         "0.0.0.0"
+      AGENT_PORT:         "8002"
+      SQLITE_PATH:        /app/data/sulla.db
+      DEMO_SQLITE_PATH:   /app/core/demo_data.db    # baked into image
+      CONFIG_PATH:        /app/data/Config.yaml
+      RESTART_FLAG_PATH:  /app/data/.restart_engine
+      LMSTUDIO_BASE_URL:  ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
+      CORS_ORIGINS:       ${CORS_ORIGINS:-http://localhost,http://192.168.0.135,https://sulla.blisske.hopto.org}
+      PYTHONUNBUFFERED:   "1"
+      TZ:                 ${TZ:-America/Denver}
+    volumes:
+      - ${SULLA_DATA_DIR:-./data}:/app/data
+    ports:
+      # Loopback-only publish — the API isn't reachable from the LAN
+      # (Traefik fronts the web container, which proxies to API internally).
+      # Kept for host-side debugging: `curl http://127.0.0.1:8002/api/health`.
+      - "127.0.0.1:8002:8002"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sulla-net
+    depends_on:
+      - sulla-engine
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─── React SPA + nginx (proxies /api and /ws to sulla-api) ───────────────
+  sulla-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: sulla-web:latest
+    container_name: sulla-web
+    restart: unless-stopped
+    init: true
+    # During the swarm-edge migration, Traefik (in the swarm-root compose)
+    # is the canonical ingress via swarm-net + the labels below. Until the
+    # router port-forward is flipped and TLS is verified, the 8085 publish
+    # below keeps the dashboard reachable on the LAN at http://<host>:8085
+    # for debugging. (8084 is fixit-api's; skipped.) Remove this `ports:`
+    # block once Traefik fully fronts.
+    ports:
+      - "8085:80"
+    networks:
+      - sulla-net          # private: lets web reach sulla-api by service DNS
+      - swarm-net          # shared: lets Traefik route inbound traffic to web
+    depends_on:
+      - sulla-api
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      # Belt-and-braces — the canonical routing comes from the file provider
+      # at ~/swarm/proxy/dynamic/sulla.yml, but these labels make the same
+      # route discoverable if the provider model changes later.
+      - "traefik.enable=true"
+      - "traefik.docker.network=swarm-net"
+      - "traefik.http.routers.sulla.rule=Host(`${SULLA_HOSTNAME:-sulla.blisske.hopto.org}`)"
+      - "traefik.http.routers.sulla.entrypoints=websecure"
+      - "traefik.http.routers.sulla.tls=true"
+      - "traefik.http.routers.sulla.tls.certresolver=letsencrypt"
+      - "traefik.http.services.sulla.loadbalancer.server.port=80"
+
+networks:
+  sulla-net:
+    driver: bridge
+  # External: created once at the swarm level via `docker network create
+  # swarm-net`. Shared by Traefik + each bot's *-web container so Traefik
+  # can reach them by container DNS without exposing them on the host.
+  swarm-net:
+    external: true

@@ -1,0 +1,840 @@
+import os
+import sqlite3
+import logging
+from pathlib import Path
+
+# ==============================================================================
+# SULLA V1 - DATABASE & LOGGING ENGINE (The Ledger)
+# Handles all local SQLite operations for Wall Street paper trading.
+# ==============================================================================
+
+logger  = logging.getLogger("sulla")
+BASE_DIR = Path(__file__).parent
+# Container-friendly: SQLITE_PATH env var overrides the source-tree default so
+# the same code path works under systemd (DB next to source) or in Docker
+# (DB at a bind-mounted /app/data/sulla.db).
+DB_PATH  = Path(os.environ.get('SQLITE_PATH', BASE_DIR / 'sulla_data.db'))
+
+
+def init_db():
+    """
+    Initializes the SQLite database. Creates tables if absent.
+    Also runs safe ALTER TABLE migrations for columns added after initial deploy.
+    """
+    try:
+        # Ensure the DB's parent directory exists (matters for /app/data when
+        # the bind mount is empty on first boot in a container).
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # WAL mode lets the engine (writer) and API (reader) hit the same DB
+        # without lock contention. Persistent across connections once set.
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+
+        # Table 1: Trade History
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS trades (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                symbol    TEXT,
+                action    TEXT,
+                price     REAL,
+                amount    REAL,
+                strategy  TEXT,
+                verdict   TEXT
+            )
+        ''')
+
+        # Table 2: Market State History
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS market_states (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                symbol    TEXT,
+                price     REAL,
+                adx       REAL,
+                regime    TEXT,
+                trend     TEXT,
+                rsi       REAL
+            )
+        ''')
+
+        # Table 3: Open Positions
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS open_positions (
+                symbol          TEXT PRIMARY KEY,
+                entry_price     REAL,
+                strategy        TEXT,
+                entry_atr       REAL DEFAULT 0.0,
+                current_stop    REAL DEFAULT 0.0,
+                entry_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Table 5: Tuning Log — records every parameter change proposal
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS tuning_log (
+                id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp              DATETIME DEFAULT CURRENT_TIMESTAMP,
+                symbol                 TEXT,
+                parameter              TEXT,
+                old_value              REAL,
+                new_value              REAL,
+                metric_name            TEXT,
+                metric_value           REAL,
+                trade_count            INTEGER,
+                status                 TEXT DEFAULT 'PENDING',
+                shadow_trades_required INTEGER DEFAULT 10
+            )
+        ''')
+
+        # Table 6: Param Snapshots — shadow validation queue
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS param_snapshots (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                tuning_log_id            INTEGER,
+                symbol                   TEXT,
+                parameter                TEXT,
+                baseline_value           REAL,
+                candidate_value          REAL,
+                shadow_trades_at_propose INTEGER DEFAULT 0,
+                shadow_trades_completed  INTEGER DEFAULT 0,
+                shadow_trades_required   INTEGER DEFAULT 10,
+                status                   TEXT DEFAULT 'VALIDATING'
+            )
+        ''')
+
+        # Table 7: Equity Peak Watermark — drawdown kill switch
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS equity_peak (
+                id        INTEGER PRIMARY KEY CHECK (id = 1),
+                peak      REAL    NOT NULL DEFAULT 0.0,
+                updated   DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Table 8: Shadow Account — synthetic ledger for shadow_mode equity.
+        # Source of truth for shadow equity, cash, drawdown peak. Decoupled
+        # from live Alpaca account so shadow simulation never reads live state.
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS shadow_account (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                cash            REAL    NOT NULL DEFAULT 10000.0,
+                initial_capital REAL    NOT NULL DEFAULT 10000.0,
+                updated         DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Table 9: Risk State — tiered drawdown + daily session loss tracking.
+        # risk_mode: NORMAL / ALERT / DERISK / HALT (peak-based, hysteresis)
+        # session_date: ET YYYY-MM-DD; resets daily_halt and captures session_start_equity
+        # daily_halt: 1 if intraday loss limit hit; auto-clears at next session
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS risk_state (
+                id                    INTEGER PRIMARY KEY CHECK (id = 1),
+                risk_mode             TEXT    NOT NULL DEFAULT 'NORMAL',
+                session_date          TEXT,
+                session_start_equity  REAL,
+                daily_halt            INTEGER NOT NULL DEFAULT 0,
+                updated               DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        conn.commit()
+
+        # --- SAFE MIGRATIONS ---
+        # Add columns to existing deployments that predate these fields.
+        # ALTER TABLE IF NOT EXISTS COLUMN is not supported in SQLite,
+        # so we catch the OperationalError when the column already exists.
+        for col, definition in [
+            ("entry_atr",       "REAL DEFAULT 0.0"),
+            ("current_stop",    "REAL DEFAULT 0.0"),
+            ("shares",          "REAL DEFAULT 0.0"),
+            # Pyramid columns (Phase 6) — single-leg positions get
+            # leg_count=1 with avg/last fields equal to entry_price.
+            ("leg_count",       "INTEGER NOT NULL DEFAULT 1"),
+            ("avg_entry_price", "REAL"),
+            ("last_leg_price",  "REAL"),
+            ("last_leg_atr",    "REAL"),
+        ]:
+            try:
+                c.execute(f"ALTER TABLE open_positions ADD COLUMN {col} {definition}")
+                conn.commit()
+                logger.info(f"DB migration: added open_positions.{col}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists — expected on re-runs
+
+        try:
+            c.execute("ALTER TABLE param_snapshots ADD COLUMN baseline_max_trade_id INTEGER DEFAULT 0")
+            conn.commit()
+            logger.info("DB migration: added param_snapshots.baseline_max_trade_id")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        for col, definition in [
+            ("volume",     "REAL"),
+            ("avg_volume", "REAL"),
+        ]:
+            try:
+                c.execute(f"ALTER TABLE market_states ADD COLUMN {col} {definition}")
+                conn.commit()
+                logger.info(f"DB migration: added market_states.{col}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to initialize DB: {e}", exc_info=True)
+
+
+# ==============================================================================
+# TRADE LOGGING
+# ==============================================================================
+
+def log_trade(symbol, action, price, amount, strategy, verdict=""):
+    """
+    Writes a new trade event to the ledger.
+
+    Args:
+        symbol   (str):   The asset traded (e.g., 'SPY' or 'AAPL')
+        action   (str):   The type of order ('BUY', 'SELL', 'PAPER BUY', 'RATCHET', 'KILL SWITCH')
+        price    (float): The execution or trigger price
+        amount   (float): The size of the position in fractional shares
+        strategy (str):   The paradigm used (e.g., 'TREND FOLLOWING' or 'MEAN REVERSION')
+        verdict  (str):   The AI's reasoning or the trigger reason
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO trades (symbol, action, price, amount, strategy, verdict)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (symbol, action, price, amount, strategy, verdict))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to log trade for {symbol}: {e}")
+
+
+def log_market_state(symbol, price, adx, regime, trend, rsi, volume=None, avg_volume=None):
+    """
+    Writes the current technical conditions to the ledger.
+    Failures are silenced to avoid spamming the console on every loop tick.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO market_states (symbol, price, adx, regime, trend, rsi, volume, avg_volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (symbol, price, adx, regime, trend, rsi, volume, avg_volume))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+# ==============================================================================
+# OPEN POSITION TRACKING
+# ==============================================================================
+
+def record_open_position(symbol, entry_price, strategy, entry_atr=0.0, shares=0.0,
+                         leg_count=1, avg_entry_price=None, last_leg_price=None,
+                         last_leg_atr=None):
+    """
+    Records which paradigm opened a position so the exit engine
+    never has to guess mid-trade. Also stores entry ATR, share count for
+    shadow P&L, and pyramid leg metadata (Phase 6 schema).
+
+    For first-leg entries, the pyramid fields default to mirror the entry
+    values so single-leg positions read cleanly. Phase 7 layers in the
+    actual add-leg logic via a separate add_pyramid_leg helper.
+    """
+    if avg_entry_price is None:
+        avg_entry_price = entry_price
+    if last_leg_price is None:
+        last_leg_price = entry_price
+    if last_leg_atr is None:
+        last_leg_atr = entry_atr
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR REPLACE INTO open_positions
+            (symbol, entry_price, strategy, entry_atr, current_stop, shares,
+             leg_count, avg_entry_price, last_leg_price, last_leg_atr)
+            VALUES (?, ?, ?, ?, 0.0, ?, ?, ?, ?, ?)
+        ''', (symbol, entry_price, strategy, entry_atr, shares,
+              leg_count, avg_entry_price, last_leg_price, last_leg_atr))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to record open position for {symbol}: {e}")
+
+
+def get_open_position(symbol):
+    """
+    Looks up the paradigm, entry price, entry ATR, current stop, share
+    count, and pyramid leg metadata for a currently held asset.
+
+    Pyramid fields fall back to single-leg defaults when NULL (legacy rows
+    or pre-Phase-6 data): leg_count=1, avg_entry_price=entry_price,
+    last_leg_price=entry_price, last_leg_atr=entry_atr.
+
+    Returns dict or None.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            'SELECT entry_price, strategy, entry_atr, current_stop, shares, '
+            'leg_count, avg_entry_price, last_leg_price, last_leg_atr '
+            'FROM open_positions WHERE symbol = ?',
+            (symbol,)
+        )
+        row = c.fetchone()
+        conn.close()
+        if row:
+            entry_price = row[0]
+            entry_atr   = row[2] or 0.0
+            return {
+                'entry_price':     entry_price,
+                'strategy':        row[1],
+                'entry_atr':       entry_atr,
+                'current_stop':    row[3] or 0.0,
+                'shares':          row[4] or 0.0,
+                'leg_count':       row[5] or 1,
+                'avg_entry_price': row[6] if row[6] is not None else entry_price,
+                'last_leg_price':  row[7] if row[7] is not None else entry_price,
+                'last_leg_atr':    row[8] if row[8] is not None else entry_atr,
+            }
+        return None
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to read open position for {symbol}: {e}")
+        return None
+
+
+def add_pyramid_leg(symbol, leg_price, leg_atr, leg_shares) -> bool:
+    """
+    Adds a leg to an existing pyramided position. Updates:
+      - shares: sum
+      - avg_entry_price: volume-weighted across all legs
+      - last_leg_price / last_leg_atr: this leg's values
+      - leg_count: incremented by 1
+
+    entry_price stays at the original first-leg price for strategy-name
+    continuity (the exit engine reads `strategy` to dispatch). Returns
+    True on success, False if the position doesn't exist.
+
+    Caller must ensure the underlying buy succeeded before calling this
+    so we don't record a leg the exchange didn't actually fill.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            'SELECT shares, avg_entry_price, entry_price FROM open_positions WHERE symbol = ?',
+            (symbol,)
+        )
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            logger.warning(f"add_pyramid_leg called on missing position {symbol}")
+            return False
+        cur_shares = row[0] or 0.0
+        cur_avg    = row[1] if row[1] is not None else (row[2] or 0.0)
+        new_shares = cur_shares + leg_shares
+        if new_shares <= 0:
+            conn.close()
+            logger.error(f"add_pyramid_leg: invalid share total for {symbol}")
+            return False
+        new_avg = ((cur_shares * cur_avg) + (leg_shares * leg_price)) / new_shares
+        c.execute('''
+            UPDATE open_positions
+            SET shares          = ?,
+                avg_entry_price = ?,
+                last_leg_price  = ?,
+                last_leg_atr    = ?,
+                leg_count       = leg_count + 1
+            WHERE symbol = ?
+        ''', (new_shares, new_avg, leg_price, leg_atr, symbol))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to add pyramid leg to {symbol}: {e}")
+        return False
+
+
+def close_open_position(symbol):
+    """
+    Removes a position record when a trade is exited.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('DELETE FROM open_positions WHERE symbol = ?', (symbol,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to close position record for {symbol}: {e}")
+
+
+def update_shadow_stop(symbol: str, new_stop: float):
+    """
+    Ratchets the current_stop value upward for a shadow position.
+    Called by the shadow exit engine each cycle when ATR ratchet improves.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            'UPDATE open_positions SET current_stop = ? WHERE symbol = ?',
+            (new_stop, symbol)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to update shadow stop for {symbol}: {e}")
+
+
+def get_all_open_positions() -> list:
+    """
+    Returns all currently tracked open positions as a list of dicts.
+    Used by the shadow exit engine to evaluate all paper holdings each cycle.
+    Includes pyramid leg metadata (Phase 6) — single-leg positions get
+    leg_count=1 with avg/last fields equal to entry_price/entry_atr.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            'SELECT symbol, entry_price, strategy, entry_atr, current_stop, shares, '
+            'leg_count, avg_entry_price, last_leg_price, last_leg_atr '
+            'FROM open_positions'
+        )
+        rows = c.fetchall()
+        conn.close()
+        return [
+            {
+                'symbol':          r[0],
+                'entry_price':     r[1],
+                'strategy':        r[2],
+                'entry_atr':       r[3] or 0.0,
+                'current_stop':    r[4] or 0.0,
+                'shares':          r[5] or 0.0,
+                'leg_count':       r[6] or 1,
+                'avg_entry_price': r[7] if r[7] is not None else r[1],
+                'last_leg_price':  r[8] if r[8] is not None else r[1],
+                'last_leg_atr':    r[9] if r[9] is not None else (r[3] or 0.0),
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to fetch all open positions: {e}")
+        return []
+
+
+# ==============================================================================
+# SELF-TUNING ENGINE — Parameter Optimization Ledger
+# ==============================================================================
+
+def log_tuning_change(symbol, parameter, old_value, new_value, metric_name,
+                       metric_value, trade_count, shadow_trades_required=10):
+    """Logs a tuning proposal and queues it for shadow validation."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO tuning_log
+            (symbol, parameter, old_value, new_value, metric_name, metric_value,
+             trade_count, status, shadow_trades_required)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+        ''', (symbol, parameter, old_value, new_value, metric_name,
+              metric_value, trade_count, shadow_trades_required))
+        log_id = c.lastrowid
+
+        # Record the current max trade ID and count so validation can filter
+        # trades that occurred *after* this proposal was created.
+        c.execute(
+            "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM trades WHERE symbol=? AND action='SHADOW SELL'",
+            (symbol,)
+        )
+        row = c.fetchone()
+        baseline_count, baseline_max_id = row[0], row[1]
+
+        c.execute('''
+            INSERT INTO param_snapshots
+            (tuning_log_id, symbol, parameter, baseline_value, candidate_value,
+             shadow_trades_at_propose, shadow_trades_required, baseline_max_trade_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'VALIDATING')
+        ''', (log_id, symbol, parameter, old_value, new_value,
+              baseline_count, shadow_trades_required, baseline_max_id))
+
+        conn.commit()
+        conn.close()
+        return log_id
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to log tuning change for {symbol}: {e}")
+        return None
+
+
+def get_closed_trades(symbol=None):
+    """
+    Returns closed trades (shadow and live) as list of dicts with pnl_pct extracted
+    from the verdict field (format: 'TAKE PROFIT: +3.6%', 'STOP HIT: -1.4%',
+    or 'Mid BB target hit. Real yield: 3.2%'). Trades whose verdict contains no
+    percentage (e.g. 'EOD FORCE-EXIT') are silently dropped from the result.
+    Includes both SHADOW SELL and live SELL actions so the tuner keeps learning
+    after shadow_mode is set to false.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        if symbol:
+            c.execute(
+                "SELECT id, symbol, strategy, verdict, timestamp, amount FROM trades "
+                "WHERE action IN ('SHADOW SELL', 'SELL') AND symbol=? ORDER BY id DESC",
+                (symbol,)
+            )
+        else:
+            c.execute(
+                "SELECT id, symbol, strategy, verdict, timestamp, amount FROM trades "
+                "WHERE action IN ('SHADOW SELL', 'SELL') ORDER BY id DESC"
+            )
+        rows = c.fetchall()
+        conn.close()
+
+        results = []
+        for row in rows:
+            try:
+                verdict = row[3] or ''
+                # Extract numeric P&L from verdict string e.g. '+3.6%' or '-1.4%'
+                import re
+                match = re.search(r'([+-]?\d+\.?\d*)%', verdict)
+                pnl_pct = float(match.group(1)) if match else 0.0
+                # On sells the `amount` column stores pnl_usd (see CLAUDE.md)
+                try:
+                    pnl_usd = float(row[5]) if row[5] is not None else 0.0
+                except (TypeError, ValueError):
+                    pnl_usd = 0.0
+                results.append({
+                    'trade_id':  row[0],
+                    'symbol':    row[1],
+                    'strategy':  row[2],
+                    'pnl_pct':   pnl_pct,
+                    'pnl_usd':   pnl_usd,
+                    'timestamp': row[4],
+                })
+            except Exception:
+                continue
+        return results
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to get closed shadow trades: {e}")
+        return []
+
+
+def increment_shadow_validation_trades(symbol):
+    """
+    Increments shadow_trades_completed for all VALIDATING snapshots for this
+    symbol. Returns list of snapshot IDs that have now reached their required
+    count and are ready for promotion decision.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            UPDATE param_snapshots
+            SET shadow_trades_completed = shadow_trades_completed + 1
+            WHERE symbol = ? AND status = 'VALIDATING'
+        ''', (symbol,))
+        conn.commit()
+
+        c.execute('''
+            SELECT id FROM param_snapshots
+            WHERE symbol = ? AND status = 'VALIDATING'
+            AND shadow_trades_completed >= shadow_trades_required
+        ''', (symbol,))
+        ready = [row[0] for row in c.fetchall()]
+        conn.close()
+        return ready
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to increment shadow validation for {symbol}: {e}")
+        return []
+
+
+def get_pending_shadow_validations():
+    """Returns all VALIDATING param snapshots as list of dicts."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            SELECT id, tuning_log_id, symbol, parameter, baseline_value,
+                   candidate_value, shadow_trades_completed, shadow_trades_required,
+                   baseline_max_trade_id
+            FROM param_snapshots WHERE status = 'VALIDATING'
+        ''')
+        rows = c.fetchall()
+        conn.close()
+        return [
+            {
+                'id':                       r[0],
+                'tuning_log_id':            r[1],
+                'symbol':                   r[2],
+                'parameter':                r[3],
+                'baseline_value':           r[4],
+                'candidate_value':          r[5],
+                'shadow_trades_completed':  r[6],
+                'shadow_trades_required':   r[7],
+                'baseline_max_trade_id':    r[8] or 0,
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to get pending validations: {e}")
+        return []
+
+
+def update_tuning_status(log_id, status):
+    """Updates status on both tuning_log and param_snapshots for a given log_id."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("UPDATE tuning_log SET status=? WHERE id=?", (status, log_id))
+        c.execute("UPDATE param_snapshots SET status=? WHERE tuning_log_id=?", (status, log_id))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to update tuning status for log_id {log_id}: {e}")
+
+
+def get_tuning_summary():
+    """
+    Returns a summary of all tuning activity for the /pnl command and dashboard.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            SELECT symbol, parameter, old_value, new_value,
+                   metric_name, metric_value, status, timestamp
+            FROM tuning_log ORDER BY timestamp DESC LIMIT 50
+        ''')
+        rows = c.fetchall()
+        conn.close()
+        return [
+            {
+                'symbol':       r[0], 'parameter':    r[1],
+                'old_value':    r[2], 'new_value':    r[3],
+                'metric_name':  r[4], 'metric_value': r[5],
+                'status':       r[6], 'timestamp':    r[7],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to get tuning summary: {e}")
+        return []
+
+
+# ==============================================================================
+# DRAWDOWN KILL SWITCH — Equity Peak Watermark
+# ==============================================================================
+
+def get_equity_peak() -> float:
+    """Returns the current all-time equity peak. Returns 0.0 if not yet seeded."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT peak FROM equity_peak WHERE id = 1')
+        row = c.fetchone()
+        conn.close()
+        return float(row[0]) if row else 0.0
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to get equity peak: {e}")
+        return 0.0
+
+
+def update_equity_peak(new_peak: float):
+    """Upserts the equity peak watermark (called when a new high is reached)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO equity_peak (id, peak) VALUES (1, ?)
+            ON CONFLICT(id) DO UPDATE SET peak=excluded.peak, updated=CURRENT_TIMESTAMP
+        ''', (new_peak,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to update equity peak: {e}")
+
+
+def reset_equity_peak(current_equity: float):
+    """Resets the watermark to current equity on /resume. Same as update."""
+    update_equity_peak(current_equity)
+
+
+# ==============================================================================
+# SHADOW ACCOUNT — Synthetic ledger for shadow_mode
+# Source of truth for shadow cash + equity. Live Alpaca account is never read
+# when shadow_mode is on (the contract enforced in main.py).
+# ==============================================================================
+
+def init_shadow_account(initial_capital: float = 10000.0):
+    """
+    Seeds the shadow_account row if absent. Idempotent — does not overwrite
+    an existing balance, so a service restart preserves the running ledger.
+    To reset for a fresh shadow run, archive sulla_data.db and let init_db()
+    recreate everything.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO shadow_account (id, cash, initial_capital) VALUES (1, ?, ?)",
+            (initial_capital, initial_capital)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to init shadow_account: {e}")
+
+
+def get_shadow_cash() -> float:
+    """Returns current shadow cash balance. 0.0 if uninitialized."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT cash FROM shadow_account WHERE id = 1")
+        row = c.fetchone()
+        conn.close()
+        return float(row[0]) if row else 0.0
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to read shadow cash: {e}")
+        return 0.0
+
+
+def get_shadow_initial_capital() -> float:
+    """Returns the seeded initial capital for the shadow account."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT initial_capital FROM shadow_account WHERE id = 1")
+        row = c.fetchone()
+        conn.close()
+        return float(row[0]) if row else 0.0
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to read shadow initial_capital: {e}")
+        return 0.0
+
+
+def adjust_shadow_cash(delta: float):
+    """
+    Atomic cash adjustment. Negative delta on shadow buy, positive on sell.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "UPDATE shadow_account SET cash = cash + ?, updated = CURRENT_TIMESTAMP WHERE id = 1",
+            (delta,)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to adjust shadow cash by {delta}: {e}")
+
+
+def init_risk_state():
+    """Seed the risk_state row if absent. Idempotent."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO risk_state (id) VALUES (1)")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to init risk_state: {e}")
+
+
+def get_risk_state() -> dict:
+    """
+    Returns current risk-state dict: risk_mode, session_date,
+    session_start_equity, daily_halt. Missing row returns NORMAL defaults.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "SELECT risk_mode, session_date, session_start_equity, daily_halt "
+            "FROM risk_state WHERE id = 1"
+        )
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {
+                'risk_mode':            row[0],
+                'session_date':         row[1],
+                'session_start_equity': row[2],
+                'daily_halt':           bool(row[3]),
+            }
+        return {
+            'risk_mode':            'NORMAL',
+            'session_date':         None,
+            'session_start_equity': None,
+            'daily_halt':           False,
+        }
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to read risk_state: {e}")
+        return {
+            'risk_mode': 'NORMAL', 'session_date': None,
+            'session_start_equity': None, 'daily_halt': False,
+        }
+
+
+def update_risk_state(**fields):
+    """
+    Updates one or more risk_state fields. daily_halt accepts bool, stored as
+    INTEGER. Caller passes only the fields that need to change.
+    """
+    if not fields:
+        return
+    if 'daily_halt' in fields:
+        fields['daily_halt'] = 1 if fields['daily_halt'] else 0
+    cols = list(fields.keys())
+    set_clause = ", ".join(f"{c} = ?" for c in cols) + ", updated = CURRENT_TIMESTAMP"
+    values = [fields[c] for c in cols]
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(f"UPDATE risk_state SET {set_clause} WHERE id = 1", values)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to update risk_state {fields}: {e}")
+
+
+def get_shadow_account_state(latest_prices: dict | None = None) -> dict:
+    """
+    Computes shadow equity from cash + market value of open positions.
+    `latest_prices` maps symbol → most recent price; positions without a
+    cached price fall back to entry_price (one-cycle stale, acceptable
+    for drawdown tracking).
+
+    Returns dict with: equity, cash, held_assets ({symbol: shares})
+    """
+    cash = get_shadow_cash()
+    positions = get_all_open_positions()
+    prices = latest_prices or {}
+    market_value = sum(
+        p['shares'] * prices.get(p['symbol'], p['entry_price'])
+        for p in positions
+    )
+    return {
+        'equity':      cash + market_value,
+        'cash':        cash,
+        'held_assets': {p['symbol']: p['shares'] for p in positions},
+    }

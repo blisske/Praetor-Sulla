@@ -1,0 +1,390 @@
+ai_agent:
+  identity_file: "IDENTITY.md"
+  soul_file: "SOUL.md"
+  user_file: "USER.md"
+  sentiment_analysis:
+    api_base: "http://192.168.0.135:1234/v1"
+    enabled: true
+    model_id: "gemma-4-26b-a4b-it"
+    provider: "lmstudio"
+    search_enabled: true
+    strict_mode: true
+    timeout: 30
+
+alpaca:
+  api_url: "https://paper-api.alpaca.markets"
+  shadow_mode: true
+
+consensus:
+  min_consensus_score: 2    # primary(1) + 2 of 3 supporting signals minimum
+  bearish_abort: true        # hard stop on BEARISH verdict, logged to DB
+  llm_reasoning: true        # thinking mode on by default
+  log_reasoning: false       # store <think> block to DB (enable when Qwen3 arrives)
+
+# ── Multi-timeframe regime filter (Phase 4) ──────────────────────────────────
+# TREND FOLLOWING and VOLATILITY BREAKOUT entries additionally require the
+# symbol's daily trend (EMA9 vs EMA21) to be BULL. Mean Reversion and Liquidity
+# Sweep are exempt — they are counter-trend by design. Daily fetch is cached
+# once per ET day per symbol; fail-open on data error.
+mtf_filter:
+  enabled: true
+
+# ── Pyramiding (Phase 7) ──────────────────────────────────────────────────────
+# Adds legs to TREND FOLLOWING and VOLATILITY BREAKOUT positions only —
+# Mean Reversion and Liquidity Sweep are counter-trend by design and pyramiding
+# into them means doubling down against the entry thesis.
+#
+# Trigger: price has advanced >= trigger_atr_mult x last_leg_atr from
+# last_leg_price, AND a fresh full 4-layer consensus check passes for the
+# same paradigm. Sizing: each leg = previous-leg-equivalent x size_decay
+# (geometric). All TradFi guardrails respected (entry cutoff, EOD, earnings
+# blackout, daily session loss, risk_mode HALT, T+1 settled cash on live).
+#
+# DEFAULT OFF. Flip enabled: true after the first trend trade has fired and
+# you've watched single-leg mechanics work end-to-end (Tiberius pattern).
+pyramiding:
+  enabled: false
+  trigger_atr_mult: 1.0     # require this many ATR of price advance from last leg
+  size_decay: 0.5            # leg N notional = leg N-1 x this
+  max_legs:
+    trend_following: 3       # max simultaneous legs on a TF position
+    volatility_breakout: 2   # equity breakouts fade harder than crypto — tighter cap
+
+# ── Correlation-aware sizing (Phase 5) ────────────────────────────────────────
+# Scales position size down as same-sector positions accumulate. Acknowledges
+# that 5 simultaneous tech-sector longs aren't 5 bets — they're roughly one
+# 5x-leveraged tech-beta bet. Static sector buckets for now; refine to a
+# data-driven correlation matrix after we have real shadow performance data.
+# Curve indexed by COUNT of same-sector open positions; final element applies
+# at N+ (so [1.0, 0.85, 0.70, 0.55, 0.40] = 4-or-more same-sector → 0.40x).
+# Composes with DERISK multiplier when both active (multipliers stack).
+correlation_aware_sizing:
+  enabled: true
+  curve: [1.0, 0.85, 0.70, 0.55, 0.40]
+  sectors:
+    Technology: [SPY, QQQ, AAPL, MSFT, NVDA, AMD, GOOGL]
+    Energy: [XOM, CVX, COP]
+    Financials: [JPM, GS, BAC]
+    Healthcare: [UNH, LLY, JNJ]
+    Consumer: [AMZN, TSLA, HD]
+    Industrials: [CAT]
+
+tuning:
+  enabled: true
+  min_trades_to_tune: 10
+  shadow_trades_required: 10
+  max_params_per_run: 2
+  cooling_off_hours: 48
+  metric: profit_factor
+  min_metric_improvement: 0.05
+  param_bounds:
+    rsi_entry: {min: 20, max: 65, max_step: 5}
+    bbw_threshold: {min: 0.03, max: 0.20, max_step: 0.01}
+    initial_stop_mult: {min: 1.0, max: 3.5, max_step: 0.1}
+    trailing_stop_mult: {min: 1.5, max: 4.0, max_step: 0.1}
+    adx_trend_threshold: {min: 18, max: 40, max_step: 2}
+    position_size_max_pct: {min: 1.0, max: 15.0, max_step: 1.0}
+
+# FIX: initial_stop_mult restored to canonical 2.0 (was 1.5 — stops were
+# being placed only 1.5 ATR below entry, well within normal intraday noise).
+# FIX: trailing_stop_mult restored to canonical 2.5 (was 1.0 — trailing stops
+# were tighter than the initial stop, locking in losses on any pullback).
+ratchet:
+  atr_period: 14
+  initial_stop_mult: 2.0
+  trailing_stop_mult: 2.5
+  power_hour_defense:
+    enabled: true
+    atr_buffer: 0.5
+
+risk:
+  initial_capital: 10000.0      # Pivot reset 2026-04-27 — shadow ledger starts at $10K
+  min_trade_size_usd: 12.0
+  risk_per_trade_pct: 5.0
+  position_size_max_pct: 12.0   # Hard cap on notional per position as % of equity (Phase 2 — configurable; was hardcoded 5%)
+  # ── Tiered drawdown (Phase 3) ────────────────────────────────────────────────
+  # Peak-based tiered response replaces the old single-threshold halt at 15%.
+  # Hysteresis: DERISK exits only after equity recovers to within recovery_pct.
+  drawdown_alert_pct: 8.0       # Telegram warning, no behavior change
+  drawdown_derisk_pct: 15.0     # Position sizing × derisk_size_multiplier; was old hard halt
+  drawdown_halt_pct: 25.0       # Autonomous loop halts; manual /resume required
+  drawdown_recovery_pct: 10.0   # Drawdown must shrink below this to exit DERISK
+  derisk_size_multiplier: 0.5   # Sizing scalar applied while in DERISK mode
+  # ── Daily session loss circuit (Sulla-only, Phase 3) ────────────────────────
+  # Captures session-start equity at first cycle of each ET trading day. If
+  # intraday drawdown from session start hits the limit, halt entries for the
+  # rest of the day. Auto-clears next session.
+  daily_session_loss_pct: 3.0
+
+strategy:
+  adx_trend_threshold: 30
+  adx_range_threshold: 20   # ADX ceiling for RANGING regime confirmation (supporting signal 3)
+  autonomous_mode: true
+  ema_fast: 9
+  ema_slow: 21
+  max_open_trades: 5
+  rsi_period: 14
+  timeframe: 30m
+  update_interval_min: 5
+  earnings_blackout_days: 2  # Block new entries within this many days of earnings
+  eod_exit_hour: 15          # Force-exit all positions after this hour (ET)
+  eod_exit_minute: 50        # Force-exit all positions after this minute (ET) — 3:50 PM default
+  active_symbols:
+    # Technology
+  - SPY
+  - QQQ
+  - NVDA
+  - AMD
+  - GOOGL
+    # Energy
+  - XOM
+  - COP
+    # Financials
+  - JPM
+  - GS
+  - BAC
+    # Healthcare
+  - UNH
+  - LLY
+  - JNJ
+    # Consumer
+  - AMZN
+  - TSLA
+  - HD
+    # Industrials
+  - CAT
+
+  paradigms:
+    liquidity_sweep:
+      rsi_entry: 40
+    mean_reversion:
+      rsi_entry: 30
+    trend_following:
+      rsi_entry: 45
+    volatility_breakout:
+      bbw_threshold: 0.08
+      rsi_entry: 65
+
+  # FIX: symbol_overrides moved under 'strategy' so get_symbol_config() can
+  # find it at cfg['strategy']['symbol_overrides']. Previously it sat at the
+  # root level and was silently ignored — all tickers ran on global defaults.
+  symbol_overrides:
+    SPY:
+      adx_trend_threshold: 28
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.0
+      paradigms:
+        mean_reversion:
+          rsi_entry: 28
+        volatility_breakout:
+          bbw_threshold: 0.06
+          rsi_entry: 55
+
+    QQQ:
+      adx_trend_threshold: 28
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.2
+      paradigms:
+        mean_reversion:
+          rsi_entry: 30
+        volatility_breakout:
+          bbw_threshold: 0.07
+          rsi_entry: 55
+
+    AAPL:
+      adx_trend_threshold: 25
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.0
+      paradigms:
+        trend_following:
+          rsi_entry: 48
+        volatility_breakout:
+          bbw_threshold: 0.06
+          rsi_entry: 55
+
+    MSFT:
+      adx_trend_threshold: 28
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.2
+      paradigms:
+        trend_following:
+          rsi_entry: 48
+        mean_reversion:
+          rsi_entry: 28
+        volatility_breakout:
+          bbw_threshold: 0.07
+
+    NVDA:
+      adx_trend_threshold: 32
+      initial_stop_mult: 2.5
+      trailing_stop_mult: 3.0
+      paradigms:
+        trend_following:
+          rsi_entry: 42
+        volatility_breakout:
+          bbw_threshold: 0.10
+          rsi_entry: 60
+        mean_reversion:
+          rsi_entry: 35
+
+    GOOGL:
+      adx_trend_threshold: 28
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.2
+      paradigms:
+        trend_following:
+          rsi_entry: 46
+        volatility_breakout:
+          bbw_threshold: 0.07
+          rsi_entry: 58
+
+    AMD:
+      adx_trend_threshold: 32
+      initial_stop_mult: 2.5
+      trailing_stop_mult: 3.0
+      paradigms:
+        trend_following:
+          rsi_entry: 43
+        volatility_breakout:
+          bbw_threshold: 0.10
+          rsi_entry: 60
+        mean_reversion:
+          rsi_entry: 35
+
+    XOM:
+      adx_trend_threshold: 25
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.0
+      paradigms:
+        trend_following:
+          rsi_entry: 46
+        mean_reversion:
+          rsi_entry: 30
+
+    CVX:
+      adx_trend_threshold: 25
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.0
+      paradigms:
+        trend_following:
+          rsi_entry: 46
+        mean_reversion:
+          rsi_entry: 30
+
+    COP:
+      adx_trend_threshold: 27
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.2
+      paradigms:
+        trend_following:
+          rsi_entry: 45
+        mean_reversion:
+          rsi_entry: 32
+
+    JPM:
+      adx_trend_threshold: 26
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.0
+      paradigms:
+        trend_following:
+          rsi_entry: 46
+        mean_reversion:
+          rsi_entry: 30
+
+    GS:
+      adx_trend_threshold: 28
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.2
+      paradigms:
+        trend_following:
+          rsi_entry: 45
+        volatility_breakout:
+          bbw_threshold: 0.07
+          rsi_entry: 58
+
+    BAC:
+      adx_trend_threshold: 25
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.0
+      paradigms:
+        trend_following:
+          rsi_entry: 46
+        mean_reversion:
+          rsi_entry: 30
+
+    UNH:
+      adx_trend_threshold: 27
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.2
+      paradigms:
+        trend_following:
+          rsi_entry: 46
+        mean_reversion:
+          rsi_entry: 30
+
+    LLY:
+      adx_trend_threshold: 30
+      initial_stop_mult: 2.2
+      trailing_stop_mult: 2.5
+      paradigms:
+        trend_following:
+          rsi_entry: 44
+        volatility_breakout:
+          bbw_threshold: 0.08
+          rsi_entry: 60
+
+    JNJ:
+      adx_trend_threshold: 24
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.0
+      paradigms:
+        trend_following:
+          rsi_entry: 47
+        mean_reversion:
+          rsi_entry: 28
+
+    AMZN:
+      adx_trend_threshold: 28
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.5
+      paradigms:
+        trend_following:
+          rsi_entry: 45
+        volatility_breakout:
+          bbw_threshold: 0.08
+          rsi_entry: 58
+
+    HD:
+      adx_trend_threshold: 26
+      initial_stop_mult: 1.8
+      trailing_stop_mult: 2.0
+      paradigms:
+        trend_following:
+          rsi_entry: 46
+        mean_reversion:
+          rsi_entry: 30
+
+    CAT:
+      adx_trend_threshold: 27
+      initial_stop_mult: 2.0
+      trailing_stop_mult: 2.2
+      paradigms:
+        trend_following:
+          rsi_entry: 45
+        mean_reversion:
+          rsi_entry: 32
+
+    TSLA:
+      adx_trend_threshold: 35
+      initial_stop_mult: 2.5
+      trailing_stop_mult: 3.5
+      paradigms:
+        trend_following:
+          rsi_entry: 42
+        volatility_breakout:
+          bbw_threshold: 0.12
+          rsi_entry: 62
+        mean_reversion:
+          rsi_entry: 35
+        liquidity_sweep:
+          rsi_entry: 38
