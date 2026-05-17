@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-17 (Phase 3b — Telegram bot + trade-event notifications)
+> Last updated: 2026-05-17 (Phase 4 — macro calendar blackout via ForexFactory feed)
 
 ---
 
@@ -9,7 +9,7 @@
 
 | Item | Value |
 |---|---|
-| Phase | **3b — Telegram bot + trade notifications wired** |
+| Phase | **4 — Macro calendar blackout active** |
 | Engine mode | Full 5-min cycle: indicator fetch → shadow exit engine → 4-layer consensus → shadow buy/sell against the $10K paper ledger. No Oanda orders (shadow-only by design). |
 | Broker | Oanda v20 REST — client written, awaiting `OANDA_API_TOKEN` + `OANDA_ACCOUNT_ID` in `~/swarm/sulla/.env` |
 | Universe | EUR/USD, GBP/USD, AUD/USD, NZD/USD, USD/JPY, USD/CHF, USD/CAD (7 majors, hot-reloaded from Config.yaml each cycle) |
@@ -517,6 +517,119 @@ SHADOW BUY / SHADOW SELL the engine produces.
   paradigms)
 - **First entry**, when it comes, will trigger the full notification
   chain end-to-end
+
+---
+
+---
+
+## Phase 4 — Macro Calendar Blackout (2026-05-17)
+
+The FX equivalent of Anton's earnings blackout. Blocks new entries on any
+pair whose base OR quote currency has a high-impact macro event in the
+configured window. Single-event movers (NFP, FOMC, CPI, rate decisions)
+routinely produce stop-hunting volatility that blows through ATR-based
+stops; we let the print land + dust settle, then resume scanning.
+
+### What landed
+
+- **`core/macro_calendar.py` (NEW)** — wraps the ForexFactory weekly JSON
+  feed (`https://nfs.faireconomy.media/ff_calendar_thisweek.json`). Free,
+  no auth, hand-curated impact ratings, ~8 years of stable schema. Module
+  contract:
+  - `get_blackout_status(symbol, macro_cfg, now=None)` → `(bool, event)`
+    used by the trading loop's entry path
+  - `upcoming_events(symbols, macro_cfg, look_ahead_hours)` → list, used
+    by `/calendar`
+  - 30-minute in-memory cache so refresh isn't on the hot path
+  - Fail-open on fetch error: serves stale cache if any, else returns
+    no-blackout (trading continues — better to miss a blackout than to
+    silently halt the engine when ForexFactory hiccups)
+  - Stamps last-fetch-error into `cache_status()` so `/calendar` can
+    surface "calendar is broken" to the operator
+
+- **`Config.yaml`** — new `macro_blackout` section:
+  ```yaml
+  macro_blackout:
+    enabled: true
+    minutes_before: 60     # block N min before each high-impact event
+    minutes_after:  120    # ... and after (let volatility settle)
+    importance_min: High   # "Low" | "Medium" | "High"
+  ```
+  Defaults are tuned to ~3 hr total window around each high-impact print.
+  "High" is the right filter — wider thresholds (Medium) block roughly
+  half the trading week.
+
+- **`main.py` — entry path patched**. `_evaluate_entry()` now runs the
+  blackout check BEFORE the paradigm evaluation, so we don't even waste
+  a paradigm-signal computation on a blacked-out pair. Logs the
+  triggering event when it fires:
+  ```
+  [USD/JPY] MACRO BLACKOUT: USD FOMC Meeting Minutes @ 2026-05-20T14:00:00-04:00 (High) — skipping entry
+  ```
+
+- **`/calendar` Telegram command** — shows upcoming events for the
+  current watchlist currencies, grouped by day, color-coded by impact
+  (🔴 High, 🟡 Medium, ⚪ Low). Optional `<hours>` arg overrides the
+  default 48h horizon (`/calendar 168` = full week). Footer shows the
+  current blackout window (`60 min before, 120 min after`).
+
+- **`/report` — gains "Active Macro Blackout" section** that only
+  appears when at least one watchlist pair is currently in a blackout
+  window. Surfaces the triggering event so the operator knows why /pnl
+  is quiet despite a juicy setup on screen.
+
+- **`/help` updated** with `/calendar` description and the optional
+  hours argument.
+
+- **`set_my_commands`** extended with `/calendar` so the slash-autocomplete
+  menu includes it.
+
+### Live verification (Sat May 17 2026)
+
+Calendar parsed 114 events for the week, 8 high-impact. The next 7 days:
+```
+Tue May 19 06:00 UTC | GBP | High | Claimant Count Change
+Tue May 19 12:30 UTC | CAD | High | CPI m/m
+Wed May 20 06:00 UTC | GBP | High | CPI y/y
+Wed May 20 18:00 UTC | USD | High | FOMC Meeting Minutes
+Thu May 21 01:30 UTC | AUD | High | Employment Change
+Thu May 21 01:30 UTC | AUD | High | Unemployment Rate
+Thu May 21 08:30 UTC | GBP | High | Flash Manufacturing PMI
+Thu May 21 08:30 UTC | GBP | High | Flash Services PMI
+```
+
+Saturday → all pairs are clear. Tuesday will be the first real test:
+GBP/USD blackout 5-8 UTC (Claimant Count) and USD/CAD blackout
+11:30-14:30 UTC (CPI m/m). Wed 17:00-20:00 UTC is the big one — FOMC
+Minutes blocks ALL USD-leg pairs (6 of 7 majors) for three hours.
+
+### What did NOT land in Phase 4
+
+- **Force-exit before macro events** — Anton force-exits positions
+  before earnings to dodge the gap risk. The FX equivalent would be
+  "close all USD positions 30 min before NFP." Phase 4 only blocks
+  new entries, doesn't close open ones. Decision deferred — defer until
+  we've watched a real event window play out on a live shadow position
+  and seen whether the stop holds vs needs proactive flatten.
+- **Per-event-importance override** — currently all "High" events get
+  the same window. Could imagine wanting a longer window for FOMC
+  (3 hrs?) vs CPI (1.5 hrs). Skip until we have evidence the
+  one-size-fits-all setting is wrong.
+- **Phase 5 (Sulla Guide page rewrite)** — `web/src/pages/Guide.jsx`
+  still shows the Anton TradFi guide. Needs FX-specific sections
+  including a section on the macro blackout we just built.
+- **Phase 6 (live Oanda)** — separate effort. Live deployment gates.
+
+### Operational state at handoff
+
+- All four containers healthy: sulla-engine, sulla-api, sulla-web,
+  swarm-proxy
+- Telegram bot bidirectional; `/calendar` + `/help` confirm Phase 4
+  surface live
+- Macro calendar cache populated (114 events, 8 high-impact)
+- All 7 majors clear right now (weekend)
+- Tuesday May 19 will be the first real-world fire of the blackout
+  logic on GBP/USD and USD/CAD pairs
 
 ---
 

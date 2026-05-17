@@ -25,6 +25,20 @@ consensus:
   llm_reasoning: true        # thinking mode on by default
   log_reasoning: false       # store <think> block to DB (enable when Qwen3 arrives)
 
+# ── Macro-event blackout (Phase 4) ──────────────────────────────────────────
+# Skips new entries on a pair when ANY currency in it (base or quote) has a
+# high-impact macro event within the configured window. Source: ForexFactory
+# weekly JSON feed, refreshed every 30 min. Fails open if the feed is down.
+#
+# importance_min options: "Low" (everything), "Medium" (most central-bank
+# speak + secondary data), "High" (NFP, CPI, FOMC, rate decisions only).
+# "High" is the right default — wider filters block ~half the trading week.
+macro_blackout:
+  enabled: true
+  minutes_before: 60        # block entries this many minutes before a high-impact event
+  minutes_after:  120       # ... and after (let initial volatility settle)
+  importance_min: High
+
 # ── Multi-timeframe regime filter ───────────────────────────────────────────
 # TREND FOLLOWING and VOLATILITY BREAKOUT entries additionally require the
 # pair's daily trend (EMA9 vs EMA21) to be BULL. Mean Reversion and Liquidity

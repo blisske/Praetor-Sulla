@@ -1,7 +1,8 @@
 """
-Sulla — Phase 3b engine.
+Sulla — Phase 4 engine.
 
-Phase 3 (consensus + shadow trading + FX math) + Phase 3b (Telegram bot).
+Phase 3 (consensus + shadow trading + FX math) + Phase 3b (Telegram bot)
++ Phase 4 (macro calendar blackout via ForexFactory feed).
 
 Per cycle:
   1. Heartbeat + restart-flag check (os._exit pattern)
@@ -42,6 +43,7 @@ import strategy
 import ai_brain
 import execution
 import fx_math
+import macro_calendar
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -223,6 +225,21 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
                           shadow_equity: float) -> None:
     if sym in open_symbols:
         return
+
+    # ── Macro-event blackout (Phase 4) ───────────────────────────────────
+    # Block new entries if any high-impact macro event lands within the
+    # configured window on EITHER currency in the pair. The check is cheap
+    # (in-memory cache) so it sits before the paradigm evaluation.
+    macro_cfg = config.get('macro_blackout', {})
+    if macro_cfg.get('enabled', True):
+        in_blackout, event = macro_calendar.get_blackout_status(sym, macro_cfg)
+        if in_blackout and event:
+            logger.info(
+                f"[{sym}] MACRO BLACKOUT: {event.get('country')} "
+                f"{event.get('title')} @ {event.get('date')} ({event.get('impact')}) "
+                f"— skipping entry"
+            )
+            return
 
     d['symbol'] = sym
     try:
@@ -415,7 +432,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Status &amp; Reporting</b>\n"
         "• /indicators — regime / RSI / ADX / trend for all 7 majors\n"
         "• /report — portfolio audit (equity, holdings, defense)\n"
-        "• /pnl — shadow P&amp;L report (per-pair + summary)\n\n"
+        "• /pnl — shadow P&amp;L report (per-pair + summary)\n"
+        "• /calendar — upcoming high-impact macro events (next 48h; "
+        "<code>/calendar 168</code> for a full week)\n\n"
         "<b>Manual Trade Control</b>\n"
         "• /buy PAIR USD — manual buy with auto stop-loss "
         "(e.g. <code>/buy EUR/USD 1000</code>)\n\n"
@@ -546,6 +565,27 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             defense_lines.append(f"• ⚠️ <b>{sym}</b> — <i>NAKED</i>")
     if defense_lines:
         sections.append("<b>Active Defense</b>\n" + "\n".join(defense_lines))
+
+    # Macro blackout — surface any currently-firing event windows so the
+    # operator knows why /pnl might be quiet despite a juicy setup on screen.
+    macro_cfg = cfg.get('macro_blackout', {})
+    if macro_cfg.get('enabled', True):
+        active_symbols = cfg.get('strategy', {}).get('active_symbols', [])
+        blackout_lines = []
+        seen_events = set()
+        for sym in active_symbols:
+            in_b, ev = macro_calendar.get_blackout_status(sym, macro_cfg)
+            if in_b and ev:
+                event_key = (ev.get('country'), ev.get('title'), ev.get('date'))
+                if event_key in seen_events:
+                    continue
+                seen_events.add(event_key)
+                blackout_lines.append(
+                    f"• ⏸ {ev.get('country')} · {ev.get('title')} "
+                    f"({ev.get('impact')}) @ {ev.get('date')}"
+                )
+        if blackout_lines:
+            sections.append("<b>Active Macro Blackout</b>\n" + "\n".join(blackout_lines))
 
     await update.message.reply_html("\n\n".join(sections))
 
@@ -771,6 +811,73 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Could not write restart flag: {e}")
 
 
+async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Upcoming macro events (high-impact only by default), next 48 hours."""
+    if not _auth(update): return
+    cfg = config_manager.load_engine_config()
+    macro_cfg = cfg.get('macro_blackout', {})
+    symbols = cfg.get('strategy', {}).get('active_symbols', [])
+    if not symbols:
+        await update.message.reply_text("No active_symbols configured.")
+        return
+
+    # Allow optional `/calendar <hours>` override
+    hours = 48
+    if context.args:
+        try:
+            hours = max(1, min(168, int(context.args[0])))
+        except ValueError:
+            pass
+
+    events = macro_calendar.upcoming_events(symbols, macro_cfg, look_ahead_hours=hours)
+    sections = [f"📅 <b>Macro Calendar</b>  ·  next {hours}h "
+                f"(impact ≥ {macro_cfg.get('importance_min', 'High')})"]
+
+    if not events:
+        sections.append(
+            "<i>No events at the configured impact threshold for the watchlist "
+            f"currencies in the next {hours}h.</i>"
+        )
+        status = macro_calendar.cache_status()
+        if status['fetched_at']:
+            from datetime import datetime as _dt
+            age_min = (status['age_seconds'] or 0) / 60
+            sections.append(
+                f"<i>Calendar refreshed {age_min:.0f} min ago — "
+                f"{status['events']} events in cache.</i>"
+            )
+        if status['last_error']:
+            sections.append(f"<i>⚠️ Last fetch error: {status['last_error']}</i>")
+        await update.message.reply_html("\n\n".join(sections))
+        return
+
+    # Group by day so a busy week reads cleanly
+    from collections import defaultdict
+    by_day = defaultdict(list)
+    for e in events:
+        local_day = e['time_utc'].astimezone().strftime("%a %b %d")
+        by_day[local_day].append(e)
+
+    for day, day_events in by_day.items():
+        lines = [f"<b>{day}</b>"]
+        for e in day_events:
+            local_time = e['time_utc'].astimezone().strftime("%H:%M")
+            impact_emoji = "🔴" if e['impact'] == "High" else "🟡" if e['impact'] == "Medium" else "⚪"
+            lines.append(
+                f"  {impact_emoji} <b>{local_time}</b> · {e['currency']} · "
+                f"{e['title']}"
+                + (f"  (fcst {e['forecast']}, prev {e['previous']})"
+                   if e['forecast'] != '—' or e['previous'] != '—' else "")
+            )
+        sections.append("\n".join(lines))
+
+    sections.append(
+        f"<i>Entry blackout fires {macro_cfg.get('minutes_before', 60)} min before "
+        f"and {macro_cfg.get('minutes_after', 120)} min after each event.</i>"
+    )
+    await update.message.reply_html("\n\n".join(sections))
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Plain text = pair name → ad-hoc AI sentiment."""
     if not _auth(update): return
@@ -868,7 +975,7 @@ async def trading_loop_async() -> None:
 async def main_async() -> None:
     global _bot
     _install_signal_handlers()
-    logger.info("=== Sulla Phase 3b engine starting ===")
+    logger.info("=== Sulla Phase 4 engine starting ===")
 
     telegram_token = secrets.get('telegram_bot_token')
     telegram_user  = secrets.get('telegram_user_id')
@@ -899,6 +1006,7 @@ async def main_async() -> None:
     app.add_handler(CommandHandler("confirm_kill", cmd_confirm_kill))
     app.add_handler(CommandHandler("resume",       cmd_resume))
     app.add_handler(CommandHandler("restart",      cmd_restart))
+    app.add_handler(CommandHandler("calendar",     cmd_calendar))
     app.add_handler(CommandHandler("help",         cmd_help))
     app.add_handler(CommandHandler("start",        cmd_help))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -919,6 +1027,7 @@ async def main_async() -> None:
             BotCommand("confirm_kill", "Confirm liquidation"),
             BotCommand("resume",       "Clear drawdown halt"),
             BotCommand("restart",      "Queue clean engine restart"),
+            BotCommand("calendar",     "Upcoming macro events"),
             BotCommand("help",         "Show this command list"),
         ])
     except Exception as e:
