@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-17 (Phase 2 — Oanda v20 adapter + real cycle loop landed; awaiting credentials)
+> Last updated: 2026-05-17 (Phase 3 — consensus engine + shadow buy/sell + FX math + brand color)
 
 ---
 
@@ -9,8 +9,8 @@
 
 | Item | Value |
 |---|---|
-| Phase | **2 — Oanda adapter wired; awaiting credentials** |
-| Engine mode | Live cycle loop (5 min interval). Fetches OHLCV + indicators per symbol when credentials are present; idles gracefully when they're not. No trading logic yet. |
+| Phase | **3 — Consensus + shadow trading + FX math** |
+| Engine mode | Full 5-min cycle: indicator fetch → shadow exit engine → 4-layer consensus → shadow buy/sell against the $10K paper ledger. No Oanda orders (shadow-only by design). |
 | Broker | Oanda v20 REST — client written, awaiting `OANDA_API_TOKEN` + `OANDA_ACCOUNT_ID` in `~/swarm/sulla/.env` |
 | Universe | EUR/USD, GBP/USD, AUD/USD, NZD/USD, USD/JPY, USD/CHF, USD/CAD (7 majors, hot-reloaded from Config.yaml each cycle) |
 | Timeframe | 1h |
@@ -252,6 +252,141 @@ the first cycle completes.
 3. **JPY pair display precision** — currently rendered with 5 decimals
    like the others; Phase 3 swaps in the magnitude-aware `_fp()` helper
    from Tiberius.
+
+---
+
+---
+
+## Phase 3 — Consensus + Shadow Trading + FX Math (2026-05-17)
+
+Phase 2 wired Oanda for live data. Phase 3 turns the engine from "fetches
+bars and logs them" into a real trader that runs the full Anton/Tiberius
+2+1+1 consensus stack against the FX universe and writes shadow trades
+to the synthetic $10K ledger. No Oanda order submission yet — shadow-only
+by design until Phase 6 live gates clear.
+
+### What landed
+
+- **`core/fx_math.py` (NEW)** — FX-specific math the equity/crypto engines
+  didn't need:
+  - `pip_size(symbol)` returns 0.0001 / 0.01 (JPY) correctly
+  - `pip_value_usd(symbol, price, units)` — USD-quote pairs are easy,
+    USD-base pairs (USD/JPY etc.) divide through the rate, non-USD
+    crosses raise NotImplementedError (out of scope for the 7 majors)
+  - `calculate_units(equity, risk_pct, entry, stop, symbol, cap_pct)` —
+    Oanda unit-based sizing with explicit pip math, cap respected via
+    fx_math, returns whole units
+  - `position_notional_usd(symbol, units, price)` — used by the synthetic
+    ledger to debit/credit cash on entry/exit
+  - `fp(price, symbol)` — magnitude-aware display formatter, gives 3
+    decimals for JPY pairs (no more `158.77600`) and 5 for non-JPY
+
+- **`core/execution.py` (REWRITE)** — Anton's Alpaca-heavy version was
+  gutted. Phase 3 only needs `is_market_open()` (FX 24/5, Sun 17:00 ET →
+  Fri 17:00 ET) and `calculate_position_units()`. Order-submission
+  functions remain as `NotImplementedError` stubs so Phase 6 just fills
+  in the bodies. The Anton reference engine is still preserved at
+  `_main_anton_reference.py`.
+
+- **`core/ai_brain.py` (REWRITE)** — same shape as Tiberius's May-12
+  fix, FX-adapted:
+  - `_parse_verdict()` returns the **answer body** (post-`</think>`) not
+    the chain-of-thought, so Telegram messages and Live Log entries show
+    the analyst's polished commentary rather than the model's internal
+    scratchwork
+  - Surfaces up to 3500 chars (Telegram 4096 cap minus prefix)
+  - System prompt frames Gemma as a senior currency strategist, not an
+    equity analyst
+  - Brave Search query is FX-tuned: `"{base} {quote} forex central bank
+    news"` — biased toward macro headlines rather than corporate news of
+    similarly-named tickers
+
+- **`core/strategy.py` (PATCH)** — the 4 paradigms (Trend Following,
+  Mean Reversion, Volatility Breakout, Liquidity Sweep), supporting
+  signals, and exit logic are asset-class-agnostic and ported as-is.
+  Only change: replaced the equity 9:30–3:30 ET session guard with the
+  FX 24/5 guard (closed Saturday + Sunday-before-17:00-ET +
+  Friday-after-17:00-ET). Default symbol changed `SPY` → `EUR/USD`.
+
+- **`core/main.py` (REWRITE)** — Phase 2 placeholder cycle replaced with
+  the full Phase 3 cycle:
+  1. Touch heartbeat
+  2. Check restart flag (`os._exit(0)`)
+  3. Hot-reload Config.yaml
+  4. **Shadow exit engine** — `_run_shadow_exit_engine()` iterates every
+     open position, checks for stop hits + take-profits via
+     `strategy.check_exit_signals`, executes trailing-stop ratchet on
+     positive moves. SHADOW SELL writes flow through `database.log_trade`
+     with the realized P&L USD in the `amount` column.
+  5. Parallel `fetch_indicators()` for all `active_symbols`
+  6. Log per-symbol regime/RSI/ADX (FX-precision via `fx_math.fp()`)
+  7. Persist `market_states`
+  8. **Consensus + shadow buy** — `_evaluate_entry()` per symbol:
+     - Layer 1: `check_entry_signals()` — does any paradigm fire?
+     - Layer 2: `check_supporting_signals()` — 2 of 3 confirm?
+     - Score gate: ≥ `min_consensus_score` (default 3)
+     - Layer 3: `ai_brain.get_ai_consensus()` — BULLISH / NEUTRAL /
+       BEARISH (with `bearish_abort` veto)
+     - If all clear: `execution.calculate_position_units()` for sizing,
+       then SHADOW BUY logged + position recorded + stop set +
+       synthetic cash debited
+  9. Sleep with mid-sleep restart-flag wakeups every 30s
+
+- **Brand color + login redesign** (folded into this session) — Sulla's
+  visual identity locked to electric blue (`#3B82F6`). Login page has
+  a distinct currency-glyph pattern overlay + blue accent line + FX-
+  specific tagline. See preceding commit (56b807e) for the detail.
+
+### What did NOT land in Phase 3
+
+- **Telegram bot** — Phase 3b. Needs a Sulla BotFather token in `.env`,
+  then porting the command handlers from Anton/Tiberius. Engine doesn't
+  poll Telegram in Phase 3 so there's no token conflict.
+- **`/api/account` + `/api/positions` Oanda integration** — Phase 6
+  reads the real account from Oanda. Phase 3 dashboard reads from the
+  synthetic ledger only.
+- **Macro calendar blackout** — Phase 4. NFP / FOMC / CPI / ECB / BoJ
+  event-window skipping.
+- **Sulla-specific Guide page** — currently shows Anton's TradFi guide;
+  Phase 5 rewrites for FX.
+
+### Live verification
+
+```
+2026-05-17 14:26:13 === Sulla Phase 3 engine starting ===
+2026-05-17 14:26:13 Oanda client ready: OandaClient(account='101-001-39349095-001', environment='practice', ...)
+2026-05-17 14:26:14 --- CYCLE START | symbols: 7 | tf: 1h ---
+2026-05-17 14:26:15 [EUR/USD] 1.16252 | TRENDING | ADX=42.1 | RSI=35.9 | Trend=BEAR
+2026-05-17 14:26:15 [GBP/USD] 1.33242 | TRENDING | ADX=49.9 | RSI=31.5 | Trend=BEAR
+2026-05-17 14:26:15 [AUD/USD] 0.71482 | TRENDING | ADX=37.1 | RSI=34.9 | Trend=BEAR
+2026-05-17 14:26:15 [NZD/USD] 0.58391 | TRENDING | ADX=44.8 | RSI=29.4 | Trend=BEAR
+2026-05-17 14:26:15 [USD/JPY] 158.776 | RANGING | ADX=14.2 | RSI=66.3 | Trend=BULL
+2026-05-17 14:26:15 [USD/CHF] 0.78696 | RANGING | ADX=22.5 | RSI=63.2 | Trend=BULL
+2026-05-17 14:26:15 [USD/CAD] 1.37495 | RANGING | ADX=25.5 | RSI=55.0 | Trend=BULL
+```
+
+USD/JPY shows `158.776` (3dp, fx_math.fp() picked up the JPY-pair convention).
+Non-JPY pairs show 5dp. No entries fired this cycle — strong-dollar tape
+means USD-base pairs are BEAR (TF needs BULL) and USD/JPY is RANGING but
+with RSI 66 well above the MR threshold of 30. Engine is doing exactly
+what it should: scanning, logging, nothing brewing.
+
+### Open Phase 3 follow-ups
+
+1. **First entry** — wait for a setup. Most likely candidate based on the
+   current tape: AUD/USD or NZD/USD hitting RSI 29-30 with ADX falling
+   would fire Mean Reversion. Could happen this week.
+2. **Verify the LLM gate fires correctly when something does brew** —
+   Phase 3 hasn't actually exercised the Gemma 4 26B → answer-body
+   rendering path in production yet. The Tiberius May-12 fix is ported
+   verbatim so high confidence it's right, but until a real BULLISH
+   verdict surfaces in a SHADOW BUY's enriched_verdict field we haven't
+   end-to-end tested it on FX.
+3. **Phase 3b: Telegram** — create a Sulla bot via @BotFather, add the
+   token to `~/swarm/sulla/.env`, restart. Then port the command
+   handlers from Anton.
+4. **Phase 4: Macro calendar** — most useful before live mode. NFP /
+   FOMC blackouts skip new entries N hours before high-impact events.
 
 ---
 

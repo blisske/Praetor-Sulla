@@ -2,48 +2,50 @@ import datetime
 import pytz
 
 # ==============================================================================
-# SULLA V1 - TRADFI STRATEGY ENGINE
-# Evaluates US Equity technical indicators and includes TradFi-specific
-# protections like the Morning Settle gap trap defense and the 3:30 PM cutoff.
+# SULLA V1 — FX STRATEGY ENGINE
+# Same 4-paradigm signal architecture as Anton (TradFi) and Tiberius (crypto):
+# Trend Following / Mean Reversion / Volatility Breakout / Liquidity Sweep.
+# Asset-class-agnostic math; only the session-hour guard differs from Anton.
+# FX trades 24/5 (Sun 17:00 ET → Fri 17:00 ET), so there's no intraday cutoff,
+# only a weekend block.
 # ==============================================================================
 
 def check_entry_signals(indicators, config=None):
     """
-    Evaluates the current market data to see if any of our paradigms
-    are flashing a valid buy setup.
+    Evaluates the current market data to see if any of our paradigms are
+    flashing a valid long setup.
     """
     import config_manager
 
-    # 1. Identify the target asset (defaulting to SPY if not provided)
-    symbol = indicators.get('symbol', 'SPY')
+    # 1. Identify the target asset (defaults to EUR/USD if unset)
+    symbol = indicators.get('symbol', 'EUR/USD')
 
-    # 2. Dynamically overwrite global settings with the ticker's sniper settings
+    # 2. Overlay per-symbol overrides from Config.yaml
     if config is not None:
         config = config_manager.get_symbol_config(config, symbol)
 
     ny_tz = pytz.timezone('America/New_York')
 
-    # Check if the backtester fed us a historical timestamp, otherwise use live time
     if 'timestamp' in indicators:
         now_ny = indicators['timestamp']
-        # Ensure the backtester timestamp is tz-aware
         if now_ny.tzinfo is None:
             now_ny = ny_tz.localize(now_ny)
     else:
         now_ny = datetime.datetime.now(ny_tz)
 
     # -------------------------------------------------------------------------
-    # SESSION HOUR GUARD
-    # FIX: Original code only blocked 9:30–9:59 AM and allowed everything else,
-    # including after-hours. This now enforces the full valid window:
-    # entries are only permitted between 9:30 AM and 3:30 PM ET.
-    # The 3:30 PM cutoff gives 30 minutes of runway before close to avoid
-    # orphaned intraday positions that would count as PDT violations.
+    # FX SESSION GUARD
+    # Forex market is open Sunday 17:00 ET → Friday 17:00 ET. Closed weekends
+    # only — no intraday cutoff like equities. Phase 4 layers macro-event
+    # blackouts (NFP / FOMC / CPI / ECB / BoJ) on top of this base guard.
     # -------------------------------------------------------------------------
-    market_open = now_ny.replace(hour=9,  minute=30, second=0, microsecond=0)
-    cutoff      = now_ny.replace(hour=15, minute=30, second=0, microsecond=0)
-
-    if now_ny < market_open or now_ny >= cutoff:
+    weekday = now_ny.weekday()  # Mon=0, Sun=6
+    market_closed = (
+        weekday == 5                                or  # all Saturday
+        (weekday == 6 and now_ny.hour < 17)         or  # Sunday before 5pm ET
+        (weekday == 4 and now_ny.hour >= 17)            # Friday after 5pm ET
+    )
+    if market_closed:
         return False, "NONE"
 
     # -------------------------------------------------------------------------
@@ -220,7 +222,7 @@ def check_exit_signals(indicators, strategy_type, current_stop_price, entry_pric
     import config_manager
 
     # Identify the target asset and merge config, future-proofing for ATR stop logic
-    symbol = indicators.get('symbol', 'SPY')
+    symbol = indicators.get('symbol', 'EUR/USD')
     if config is not None:
         config = config_manager.get_symbol_config(config, symbol)
 

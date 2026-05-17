@@ -1,142 +1,169 @@
+"""
+Sulla — AI Sentiment & Consensus Engine.
+
+Three-tier verdict: BULLISH (execute) / NEUTRAL (hold) / BEARISH (hard abort).
+
+FX-adapted from Anton's TradFi version + Tiberius's May-12 rendering fix:
+  - Brave Search query is FX-tuned ("EUR USD forex" not "EUR/USD stock")
+  - The system prompt frames Gemma as an FX strategist, not an equity analyst
+  - Returns the model's polished answer body (post-`</think>`) rather than
+    the raw `<think>` chain-of-thought (the bug Tiberius hit; same fix here)
+  - Surfaces up to 3500 chars of reasoning so Telegram messages stay rich
+    (4096 cap minus our message prefix headers)
+"""
+
 import asyncio
 import logging
 import requests
 
-# ==============================================================================
-# SULLA V1 - AI SENTIMENT & CONSENSUS ENGINE (TradFi Analyst)
-# Three-tier verdict: BULLISH (execute) / NEUTRAL (hold) / BEARISH (hard abort)
-# Configurable model — swap model_id in Config.yaml with no code changes.
-# ==============================================================================
-
 logger = logging.getLogger("sulla")
 
-def _get_ai_consensus_sync(symbol, price, brave_key, llm_base_url, model_id,
-                            paradigm, support_reasons, indicators, llm_reasoning=True):
-    """
-    Synchronous worker. Isolated so asyncio loop stays responsive.
-    """
-    # ------------------------------------------------------------------
-    # STEP 1: WEB SCRAPE — TradFi headlines via Brave Search
-    # ------------------------------------------------------------------
-    news_text = ""
-    try:
-        resp = requests.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            headers={"X-Subscription-Token": brave_key, "Accept": "application/json"},
-            params={"q": f"{symbol} stock market news", "count": 3},
-            timeout=10
-        )
-        results   = resp.json().get('web', {}).get('results', [])
-        news_text = " | ".join([r['title'] for r in results])
-    except Exception as e:
-        news_text = f"[News unavailable: {e}]"
 
-    # ------------------------------------------------------------------
-    # STEP 2: BUILD ENRICHED PROMPT
-    # ------------------------------------------------------------------
+_SYSTEM_PROMPT = (
+    "You are a senior currency strategist at a global macro desk. You assess "
+    "long FX positions on the basis of price action, momentum, and the "
+    "current macro tape. You write in clear, professional prose — no jargon "
+    "without context, no hedging hand-waving. You consider central-bank "
+    "stance, recent macro releases, interest-rate differentials, and "
+    "near-term risk events when evaluating a potential long. "
+    "You MUST end your analysis with exactly one of:\n"
+    "VERDICT: BULLISH\n"
+    "VERDICT: NEUTRAL\n"
+    "VERDICT: BEARISH"
+)
+
+
+def _parse_verdict(text: str) -> tuple[str, str, bool]:
+    """
+    Returns (verdict_str, answer_body, is_bullish).
+
+    Strips any `<think>...</think>` (Qwen3 chain-of-thought) and keeps the
+    answer body — the polished analyst commentary that follows. That's
+    what we surface to the user; the think-block is internal scratchwork.
+    """
+    if "<think>" in text and "</think>" in text:
+        think_end = text.index("</think>")
+        text = text[think_end + len("</think>"):].strip()
+
+    answer_body = text.strip()
+    text_upper  = answer_body.upper()
+
+    if "VERDICT: BEARISH" in text_upper:
+        return "BEARISH", answer_body, False
+    if "VERDICT: BULLISH" in text_upper and "VERDICT: NEUTRAL" not in text_upper:
+        return "BULLISH", answer_body, True
+    if "VERDICT: NEUTRAL" in text_upper:
+        return "NEUTRAL", answer_body, False
+    if "BEARISH" in text_upper:
+        return "BEARISH (inferred)", answer_body, False
+    if "BULLISH" in text_upper:
+        return "BULLISH (inferred)", answer_body, True
+    logger.warning("No VERDICT line in LLM response — defaulting to NEUTRAL")
+    return "NEUTRAL (no verdict found)", answer_body, False
+
+
+def _build_news_query(symbol: str) -> str:
+    """
+    FX-tuned Brave Search query. Both legs of the pair matter (you want EUR
+    news AND USD news for EUR/USD), so the query joins them with 'forex' as
+    the search anchor + 'central bank' to bias toward macro headlines that
+    actually move FX rather than corporate news of similarly-named tickers.
+    """
+    base, quote = symbol.split("/")
+    return f"{base} {quote} forex central bank news"
+
+
+def _build_prompt(symbol, price, paradigm, support_reasons, indicators, news_text):
     support_str = " | ".join(support_reasons) if support_reasons else "N/A"
+    rsi = indicators.get('rsi')
+    adx = indicators.get('adx')
+    rsi_str = f"{rsi:.1f}" if rsi is not None else "N/A"
+    adx_str = f"{adx:.1f}" if adx is not None else "N/A"
 
-    rsi_val = indicators.get('rsi')
-    adx_val = indicators.get('adx')
-    rsi_str = f"{rsi_val:.1f}" if rsi_val is not None else "N/A"
-    adx_str = f"{adx_val:.1f}" if adx_val is not None else "N/A"
-
-    prompt = (
-        f"SYMBOL: {symbol} (US Equity)\n"
-        f"PRICE: ${price:.2f}\n"
+    return (
+        f"PAIR: {symbol}\n"
+        f"PRICE: {price:.5f}\n"
         f"PARADIGM TRIGGERED: {paradigm}\n"
         f"SUPPORTING SIGNALS: {support_str}\n"
         f"RSI: {rsi_str} | ADX: {adx_str} | "
         f"Regime: {indicators.get('regime', 'N/A')} | Trend: {indicators.get('trend', 'N/A')}\n"
         f"NEWS CONTEXT: {news_text}\n\n"
-        f"Given the technical setup and news context above, assess whether this is a safe "
-        f"environment to go long on {symbol}.\n"
-        f"You MUST end your response with exactly one of:\n"
-        f"VERDICT: BULLISH\n"
-        f"VERDICT: NEUTRAL\n"
-        f"VERDICT: BEARISH"
+        f"Given the technical setup and news context above, assess whether this is "
+        f"a safe environment to go long on {symbol} for an intermediate-term hold "
+        f"(hours-to-days). Consider near-term macro events (NFP, FOMC, CPI, ECB, "
+        f"BoJ, etc.) that could invalidate the trade."
     )
 
-    # ------------------------------------------------------------------
-    # STEP 3: QUERY THE LLM
-    # ------------------------------------------------------------------
+
+def _get_ai_consensus_sync(symbol, price, brave_key, llm_base_url, model_id,
+                            paradigm, support_reasons, indicators,
+                            llm_reasoning=True):
+    """
+    Synchronous worker. Returns (is_bullish, verdict_str, summary).
+    """
+    # ── 1. News context via Brave ──
+    news_text = ""
+    try:
+        resp = requests.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"X-Subscription-Token": brave_key, "Accept": "application/json"},
+            params={"q": _build_news_query(symbol), "count": 3},
+            timeout=10,
+        )
+        results   = resp.json().get('web', {}).get('results', [])
+        news_text = " | ".join(r['title'] for r in results) if results else "[No recent headlines]"
+    except Exception as e:
+        news_text = f"[News unavailable: {e}]"
+
+    # ── 2. Build prompt + query LLM ──
+    prompt = _build_prompt(symbol, price, paradigm, support_reasons, indicators, news_text)
     payload = {
         "model": model_id,
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a rigid, elite Wall Street quantitative analyst. "
-                    "You use perfect spelling and professional grammar. "
-                    "You MUST end your analysis with exactly 'VERDICT: BULLISH', "
-                    "'VERDICT: NEUTRAL', or 'VERDICT: BEARISH'. "
-                    "Do not misspell or abbreviate these words."
-                )
-            },
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
         ],
-        "temperature": 0.3,
-        "frequency_penalty": 0.5,
-        "presence_penalty": 0.2,
+        "temperature":       0.15,
+        "max_tokens":        2048,
+        "frequency_penalty": 0.3,
     }
+    try:
+        ai_resp = requests.post(
+            f"{llm_base_url}/chat/completions",
+            json=payload,
+            timeout=90,
+        ).json()
+        raw_text = ai_resp['choices'][0]['message']['content']
+    except requests.exceptions.Timeout:
+        return False, "NEUTRAL", "AI GATE OFFLINE: Read Timed Out (>90s)."
+    except Exception as e:
+        return False, "NEUTRAL", f"AI GATE OFFLINE: {e}"
 
-    # Thinking mode — Qwen3 only. Gemma / Llama / others ignore or error on this param.
-    if llm_reasoning and model_id and "qwen3" in model_id.lower():
-        payload["thinking"] = {"type": "enabled", "budget_tokens": 512}
-
-    ai_resp  = requests.post(f"{llm_base_url}/chat/completions", json=payload, timeout=30).json()
-    full_text = ai_resp['choices'][0]['message']['content']
-
-    # ------------------------------------------------------------------
-    # STEP 4: PARSE THREE-TIER VERDICT
-    # Anchor exclusively to the "VERDICT:" line so stray words in the
-    # body (tickers, qualifiers, notes) don't pollute the match.
-    # ------------------------------------------------------------------
-    import re
-    verdict_line = ""
-    for line in full_text.splitlines():
-        if "VERDICT:" in line.upper():
-            verdict_line = line.upper()
-            break
-
-    if verdict_line:
-        if "BEARISH" in verdict_line:
-            return "BEARISH", full_text
-        if "BULLISH" in verdict_line or re.search(r'\bBULL\b', verdict_line):
-            return "BULLISH", full_text
-        if "NEUTRAL" in verdict_line:
-            return "NEUTRAL", full_text
-
-    # Fallback if no VERDICT: line found — log and default to NEUTRAL (safe)
-    logger.warning(f"[AI] No VERDICT: line found in LLM response — defaulting to NEUTRAL")
-    return "NEUTRAL", full_text
+    # ── 3. Parse + return ──
+    verdict_str, answer_body, is_bullish = _parse_verdict(raw_text)
+    if answer_body:
+        summary = answer_body[:3500] + ("…" if len(answer_body) > 3500 else "")
+    else:
+        summary = f"VERDICT: {verdict_str}"
+    return is_bullish, verdict_str, summary
 
 
-async def get_ai_consensus(symbol, price, brave_key, llm_base_url, model_id,
-                            paradigm="UNKNOWN", support_reasons=None, indicators=None,
-                            llm_reasoning=True):
+async def get_ai_consensus(symbol, price, strategy_type, indicators,
+                           supporting_reasons, brave_key, llm_base_url,
+                           model_id, use_reasoning=True):
     """
-    Async wrapper. Returns (verdict_str, full_text) where verdict_str is
-    one of: 'BULLISH', 'NEUTRAL', 'BEARISH'.
-
-    Callers should check:
-        if verdict == 'BULLISH': execute
-        if verdict == 'BEARISH': hard abort + log
-        else: hold
+    Async wrapper. Returns (is_bullish: bool, verdict_str: str, summary: str).
     """
     if indicators is None:
         indicators = {}
-    if support_reasons is None:
-        support_reasons = []
+    if supporting_reasons is None:
+        supporting_reasons = []
 
     try:
         return await asyncio.to_thread(
             _get_ai_consensus_sync,
             symbol, price, brave_key, llm_base_url, model_id,
-            paradigm, support_reasons, indicators, llm_reasoning
+            strategy_type, supporting_reasons, indicators, use_reasoning,
         )
-    except requests.exceptions.Timeout:
-        return "NEUTRAL", "AI GATE OFFLINE: Read Timed Out (>30s)."
     except Exception as e:
-        return "NEUTRAL", f"AI GATE OFFLINE: {e}"
-
+        return False, "NEUTRAL", f"AI GATE OFFLINE: {e}"
