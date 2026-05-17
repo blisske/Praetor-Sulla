@@ -1,26 +1,24 @@
 """
-Sulla — Phase 3 engine.
+Sulla — Phase 3b engine.
 
-Cycles every `update_interval_min` minutes:
-  1. Touches heartbeat (docker healthcheck)
-  2. Checks the restart flag (calls os._exit(0) if set so compose respawns)
-  3. Loads Config.yaml (hot-reloaded — dashboard edits take effect next cycle)
-  4. **Shadow exit engine** — checks every open shadow position for stop hits
-     or take-profits against current price; closes them and updates the ledger.
-  5. Fetches OHLCV + indicators for every symbol in active_symbols
-  6. Writes the indicator snapshot to market_states
-  7. **Consensus + shadow buy** — for each symbol with no open position:
-       (a) Layer 1: check_entry_signals (does any paradigm fire?)
-       (b) Layer 2: check_supporting_signals (2 of 3 confirm?)
-       (c) Score gate: total >= min_consensus_score
-       (d) Layer 3: ai_brain.get_ai_consensus (BULLISH / NEUTRAL / BEARISH)
-       (e) If all pass: compute units via fx_math, log SHADOW BUY, debit
-           synthetic cash, persist position with ATR stop.
-  8. Sleeps with mid-sleep restart-flag wakeups every 30s.
+Phase 3 (consensus + shadow trading + FX math) + Phase 3b (Telegram bot).
 
-No Telegram bot yet (Phase 3b). No live Oanda orders ever in Phase 3 — the
-shadow contract keeps every decision in-DB even though we're pulling real
-market data.
+Per cycle:
+  1. Heartbeat + restart-flag check (os._exit pattern)
+  2. Hot-reload Config.yaml
+  3. Shadow exit engine — stop hits + take-profits + trailing ratchet
+  4. Parallel indicator fetch for all 7 majors
+  5. Persist market_states
+  6. Per-symbol 4-layer consensus (paradigm → supporting → score → AI)
+  7. Shadow buy if all clear; debit synthetic cash; set ATR stop
+  8. Sleep with mid-sleep flag wakeups
+
+Concurrently:
+  - Telegram bot polling for /indicators /report /pnl /buy /kill etc.
+  - Trade-event notifications fire from within the exit engine + entry
+    consensus paths via the module-level _bot reference.
+
+No live Oanda order submission. Shadow contract enforced.
 """
 
 import os
@@ -29,7 +27,13 @@ import time
 import signal
 import asyncio
 import logging
+from html import escape as html_escape
 from pathlib import Path
+
+from telegram import Update, BotCommand
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, filters, ContextTypes,
+)
 
 import config_manager
 import database
@@ -48,17 +52,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sulla")
 
-# ─── Paths (env-driven, matches Anton/Tiberius convention) ──────────────────
+# ─── Paths + secrets ────────────────────────────────────────────────────────
 HEARTBEAT_PATH    = Path(os.environ.get('HEARTBEAT_PATH',    '/app/data/.engine_heartbeat'))
 RESTART_FLAG_PATH = Path(os.environ.get('RESTART_FLAG_PATH', '/app/data/.restart_engine'))
-
-# ─── Secrets (loaded once at module init) ───────────────────────────────────
 secrets = config_manager.load_secrets()
 
-
-# ─── Signal handling ────────────────────────────────────────────────────────
+# ─── Module-level state ─────────────────────────────────────────────────────
 _shutting_down = False
+_bot = None             # Telegram Bot instance; None until main_async wires it
+_kill_armed_at = 0.0    # Unix ts when /kill was sent; /confirm_kill must follow within 60s
+KILL_WINDOW_SECONDS = 60
 
+
+# ─── Signals + flag-file plumbing ───────────────────────────────────────────
 def _handle_signal(signum, frame):
     global _shutting_down
     logger.info(f"Received signal {signum}; flagging shutdown.")
@@ -73,7 +79,6 @@ def _install_signal_handlers():
         pass
 
 
-# ─── Restart-flag plumbing ──────────────────────────────────────────────────
 def _check_restart_flag() -> bool:
     try:
         return RESTART_FLAG_PATH.exists()
@@ -96,17 +101,38 @@ def _touch_heartbeat() -> None:
         logger.error(f"Heartbeat touch failed: {e}")
 
 
+async def _notify(html: str) -> None:
+    """Best-effort Telegram notification. No-op when bot isn't wired."""
+    if _bot is None:
+        return
+    try:
+        await _bot.send_message(
+            chat_id=secrets['telegram_user_id'],
+            text=html,
+            parse_mode='HTML',
+        )
+    except Exception as e:
+        logger.warning(f"Telegram notify failed: {e}")
+
+
+# ─── Symbol parsing helpers ─────────────────────────────────────────────────
+def _normalize_symbol(raw: str) -> str | None:
+    """
+    Convert user input ("eurusd", "EUR_USD", "eur/usd", "EUR/USD") to the
+    canonical internal form "EUR/USD". Returns None if it doesn't look like
+    a 6-letter FX pair.
+    """
+    s = raw.strip().upper().replace("/", "").replace("_", "").replace("-", "")
+    if len(s) != 6 or not s.isalpha():
+        return None
+    return f"{s[:3]}/{s[3:]}"
+
+
 # ─── Shadow exit engine ─────────────────────────────────────────────────────
 async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None:
     """
-    Iterates every open shadow position and checks for:
-      (a) Stop hit — current price ≤ current_stop
-      (b) Take profit — paradigm-specific exit signal from strategy.py
-      (c) Trailing stop ratchet — new stop above current stop on positive move
-
-    All exits write SHADOW SELL to the trades log with the realized P&L USD
-    in the `amount` column. The synthetic cash ledger is credited for the
-    return-of-capital + P&L.
+    Iterates every open shadow position and checks for stop hits, take-profits,
+    or trailing-stop ratchets. Notifies Telegram on every close.
     """
     open_positions = database.get_all_open_positions()
     if not open_positions:
@@ -116,29 +142,24 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
         sym = pos['symbol']
         d = latest_indicators.get(sym)
         if not d:
-            # No fresh data this cycle (Oanda outage or symbol dropped from
-            # watchlist) — leave the position alone, the next cycle handles it.
             continue
 
         entry_price = pos['entry_price']
         entry_strat = pos['strategy']
-        units       = pos.get('shares', 0.0)  # 'shares' column reused for FX units
+        units       = pos.get('shares', 0.0)
         cur_stop    = pos.get('current_stop') or 0.0
-        entry_atr   = pos.get('entry_atr', 0.0)
         price       = d['price']
         atr         = d['atr']
 
         # ── A. Stop hit ────────────────────────────────────────────────────
         if cur_stop > 0 and price <= cur_stop:
-            pnl_usd = fx_math.position_notional_usd(sym, units, cur_stop) \
-                    - fx_math.position_notional_usd(sym, units, entry_price)
+            pnl_usd = (fx_math.position_notional_usd(sym, units, cur_stop)
+                       - fx_math.position_notional_usd(sym, units, entry_price))
             pnl_pct = ((cur_stop - entry_price) / entry_price * 100) if entry_price else 0.0
             verdict = f'STOP HIT: {pnl_pct:.2f}%'
             database.log_trade(sym, 'SHADOW SELL', cur_stop, round(pnl_usd, 2),
                                entry_strat, verdict)
-            # Credit the synthetic ledger with exit notional (entry notional + pnl).
-            exit_notional = fx_math.position_notional_usd(sym, units, cur_stop)
-            database.adjust_shadow_cash(exit_notional)
+            database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, cur_stop))
             database.close_open_position(sym)
             dir_emoji = "🟢" if pnl_pct > 0 else ("🔴" if pnl_pct < 0 else "⚪")
             logger.info(
@@ -146,9 +167,15 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
                 f"{pnl_pct:+.2f}% (${pnl_usd:+.2f}) · "
                 f"{fx_math.fp(entry_price, sym)}→{fx_math.fp(cur_stop, sym)}"
             )
+            await _notify(
+                f"🛑 <b>SHADOW STOP HIT</b> {sym}\n"
+                f"{dir_emoji} {entry_strat} · {pnl_pct:+.2f}% "
+                f"({'+' if pnl_usd >= 0 else ''}${pnl_usd:,.2f}) · "
+                f"${fx_math.fp(entry_price, sym)}→${fx_math.fp(cur_stop, sym)}"
+            )
             continue
 
-        # ── B. Take profit / paradigm-driven exit ─────────────────────────
+        # ── B. Take profit / paradigm exit ─────────────────────────────────
         try:
             exit_cmd = strategy.check_exit_signals(
                 d, entry_strat, cur_stop, entry_price=entry_price, config=config,
@@ -158,27 +185,30 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
             exit_cmd = {'action': 'HOLD'}
 
         if exit_cmd.get('action') == 'TAKE_PROFIT':
-            pnl_usd = fx_math.position_notional_usd(sym, units, price) \
-                    - fx_math.position_notional_usd(sym, units, entry_price)
+            pnl_usd = (fx_math.position_notional_usd(sym, units, price)
+                       - fx_math.position_notional_usd(sym, units, entry_price))
             pnl_pct = ((price - entry_price) / entry_price * 100) if entry_price else 0.0
             verdict = f'TAKE PROFIT: {pnl_pct:.2f}%'
             database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
                                entry_strat, verdict)
-            exit_notional = fx_math.position_notional_usd(sym, units, price)
-            database.adjust_shadow_cash(exit_notional)
+            database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
             database.close_open_position(sym)
             logger.info(
                 f"[{sym}] 🟢 SHADOW TAKE PROFIT | {entry_strat} · "
                 f"+{pnl_pct:.2f}% (${pnl_usd:+.2f}) · "
                 f"{fx_math.fp(entry_price, sym)}→{fx_math.fp(price, sym)}"
             )
+            await _notify(
+                f"💰 <b>SHADOW TAKE PROFIT</b> {sym}\n"
+                f"🟢 {entry_strat} · +{pnl_pct:.2f}% "
+                f"(+${pnl_usd:,.2f}) · "
+                f"${fx_math.fp(entry_price, sym)}→${fx_math.fp(price, sym)}"
+            )
             continue
 
-        # ── C. Trailing stop ratchet ──────────────────────────────────────
-        trail_mult = (config.get('ratchet', {}).get('trailing_stop_mult', 2.5))
+        # ── C. Trailing ratchet ────────────────────────────────────────────
+        trail_mult = config.get('ratchet', {}).get('trailing_stop_mult', 2.5)
         new_stop = price - (atr * trail_mult)
-        # Ratchets up only — never down. Also clamp to entry as a floor so a
-        # winning trade can lock in break-even before climbing.
         if cur_stop > 0 and new_stop > cur_stop:
             database.update_shadow_stop(sym, new_stop)
             logger.info(
@@ -191,15 +221,10 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
 async def _evaluate_entry(sym: str, d: dict, config: dict,
                           open_symbols: set[str], shadow_cash: float,
                           shadow_equity: float) -> None:
-    """
-    Runs the 4-layer consensus check on a single symbol. If everything
-    passes, logs a SHADOW BUY and records the open position.
-    """
     if sym in open_symbols:
-        return  # Already in a position — Phase 3 is one-leg-per-symbol
+        return
 
-    # ── Layer 1: paradigm signal ─────────────────────────────────────────
-    d['symbol'] = sym  # strategy.py reads it
+    d['symbol'] = sym
     try:
         is_setup, paradigm = strategy.check_entry_signals(d, config=config)
     except Exception as e:
@@ -208,9 +233,8 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
     if not is_setup:
         return
 
-    # ── Layer 2: supporting signals ──────────────────────────────────────
     sup_score, sup_reasons = strategy.check_supporting_signals(d, paradigm, config=config)
-    consensus_score = 1 + sup_score  # primary signal is +1, supporting adds up to 3
+    consensus_score = 1 + sup_score
     cons_cfg        = config.get('consensus', {})
     min_consensus   = cons_cfg.get('min_consensus_score', 3)
 
@@ -221,7 +245,6 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
         )
         return
 
-    # ── Layer 3: AI verdict ──────────────────────────────────────────────
     llm_cfg     = config.get('ai_agent', {}).get('sentiment_analysis', {})
     llm_base    = llm_cfg.get('api_base')
     model_id    = llm_cfg.get('model_id')
@@ -230,11 +253,7 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
     bear_abort  = cons_cfg.get('bearish_abort', True)
 
     if not (brave_key and llm_base and model_id):
-        logger.warning(
-            f"[{sym}] CONSENSUS clear but AI layer not configured "
-            f"(brave_key={'set' if brave_key else 'missing'}, "
-            f"llm_base={'set' if llm_base else 'missing'}). Skipping entry."
-        )
+        logger.warning(f"[{sym}] AI layer not configured — skipping entry")
         return
 
     try:
@@ -250,35 +269,33 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
 
     if bear_abort and verdict_str.startswith('BEARISH'):
         logger.info(f"[{sym}] BEARISH VETO ({paradigm}): aborting entry")
+        await _notify(
+            f"🚫 <b>BEARISH VETO</b> {sym} | {paradigm}\n"
+            f"{html_escape(verdict_body[:500])}"
+        )
         return
     if not is_bullish:
         logger.info(f"[{sym}] AI {verdict_str} on {paradigm} — not bullish, holding")
         return
 
-    # ── Sizing ──────────────────────────────────────────────────────────
     risk_cfg = config.get('risk', {})
     initial_stop_mult = config.get('ratchet', {}).get('initial_stop_mult', 2.0)
     units, stop_price = execution.calculate_position_units(
-        equity_usd=shadow_equity,
-        atr=d['atr'],
-        entry_price=d['price'],
-        symbol=sym,
-        risk_config=risk_cfg,
-        stop_mult_override=initial_stop_mult,
+        equity_usd=shadow_equity, atr=d['atr'], entry_price=d['price'],
+        symbol=sym, risk_config=risk_cfg, stop_mult_override=initial_stop_mult,
     )
     if units <= 0:
-        logger.info(f"[{sym}] sizing returned 0 units (atr/equity/cap issue) — skipping")
+        logger.info(f"[{sym}] sizing returned 0 units — skipping")
         return
 
     notional = fx_math.position_notional_usd(sym, units, d['price'])
     if notional > shadow_cash:
         logger.info(
             f"[{sym}] insufficient shadow cash: need ${notional:,.2f}, "
-            f"have ${shadow_cash:,.2f} — skipping"
+            f"have ${shadow_cash:,.2f}"
         )
         return
 
-    # ── Shadow buy ──────────────────────────────────────────────────────
     enriched_verdict = (
         f"[SCORE:{consensus_score}/{min_consensus} | {' | '.join(sup_reasons)}] "
         f"{verdict_body}"
@@ -293,24 +310,36 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
     logger.info(
         f"[{sym}] 🟢 SHADOW BUY | {paradigm} · {units:,} units @ "
         f"{fx_math.fp(d['price'], sym)} | stop {fx_math.fp(stop_price, sym)} | "
-        f"notional ${notional:,.2f} | consensus {consensus_score}/{min_consensus} "
-        f"| AI {verdict_str}"
+        f"notional ${notional:,.2f}"
+    )
+
+    icons = {
+        "TREND FOLLOWING":     "📈",
+        "MEAN REVERSION":      "🧲",
+        "VOLATILITY BREAKOUT": "🚀",
+        "LIQUIDITY SWEEP":     "🐋",
+    }
+    icon = icons.get(paradigm, "🎯")
+    sentiment_tag = "🟢 BULLISH" if is_bullish else f"🔴 {verdict_str}"
+    await _notify(
+        f"👻 {icon} <b>SHADOW BUY</b>\n"
+        f"Pair: {sym}\n"
+        f"Strategy: {paradigm}\n"
+        f"Units: {units:,} · Entry: ${fx_math.fp(d['price'], sym)} · "
+        f"Stop: ${fx_math.fp(stop_price, sym)}\n"
+        f"Notional: ${notional:,.2f}\n"
+        f"Consensus: {consensus_score}/{min_consensus} | {' | '.join(sup_reasons)}\n"
+        f"AI Sentiment: {sentiment_tag}\n\n"
+        f"{html_escape(verdict_body)}"
     )
 
 
-# ─── Cycle ──────────────────────────────────────────────────────────────────
+# ─── Trading cycle ──────────────────────────────────────────────────────────
 async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
-    """
-    1. Fetches indicators for all watchlist symbols (parallel).
-    2. Persists market_states.
-    3. Runs the shadow exit engine on existing positions.
-    4. Runs entry consensus on each symbol with no open position.
-    """
     if not symbols:
         logger.warning("active_symbols is empty — nothing to scan this cycle.")
         return
 
-    # ── 1. Parallel fetch ──
     tasks = [
         market_data.fetch_indicators(sym, config=config, timeframe=timeframe)
         for sym in symbols
@@ -338,20 +367,18 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
         except Exception as e:
             logger.error(f"[{sym}] log_market_state failed: {e}")
 
-    # ── 2. Shadow exits before new entries ──
     try:
         await _run_shadow_exit_engine(config, latest)
     except Exception as e:
         logger.error(f"Shadow exit engine failed: {e}", exc_info=True)
 
-    # ── 3. Entry evaluation ──
     if not config.get('strategy', {}).get('autonomous_mode', True):
-        return  # Manual-only mode; skip the auto-entry path
+        return
     if not execution.is_market_open():
-        return  # Weekend / closed FX market
+        return
 
     open_symbols = {p['symbol'] for p in database.get_all_open_positions()}
-    snap         = database.get_shadow_account_state(latest_prices={
+    snap = database.get_shadow_account_state(latest_prices={
         s: d['price'] for s, d in latest.items()
     })
     shadow_cash   = snap.get('cash', 0.0)
@@ -370,41 +397,434 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
             await _evaluate_entry(sym, d, config, open_symbols, shadow_cash, shadow_equity)
         except Exception as e:
             logger.error(f"[{sym}] entry evaluation failed: {e}", exc_info=True)
-        # Re-read open_symbols + cash in case the eval above placed a buy
         open_symbols = {p['symbol'] for p in database.get_all_open_positions()}
         shadow_cash  = database.get_shadow_cash()
 
 
-# ─── Main loop ──────────────────────────────────────────────────────────────
-async def main_async() -> None:
-    _install_signal_handlers()
-    logger.info("=== Sulla Phase 3 engine starting ===")
-    logger.info(f"HEARTBEAT_PATH    = {HEARTBEAT_PATH}")
-    logger.info(f"RESTART_FLAG_PATH = {RESTART_FLAG_PATH}")
+# ════════════════════════════════════════════════════════════════════════════
+# TELEGRAM COMMAND HANDLERS
+# ════════════════════════════════════════════════════════════════════════════
+def _auth(update: Update) -> bool:
+    return str(update.effective_user.id) == secrets['telegram_user_id']
 
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _auth(update): return
+    msg = (
+        "📖 <b>Sulla — Command Reference</b>\n\n"
+        "<b>Status &amp; Reporting</b>\n"
+        "• /indicators — regime / RSI / ADX / trend for all 7 majors\n"
+        "• /report — portfolio audit (equity, holdings, defense)\n"
+        "• /pnl — shadow P&amp;L report (per-pair + summary)\n\n"
+        "<b>Manual Trade Control</b>\n"
+        "• /buy PAIR USD — manual buy with auto stop-loss "
+        "(e.g. <code>/buy EUR/USD 1000</code>)\n\n"
+        "<b>Safety</b>\n"
+        "• /kill → /confirm_kill — two-step emergency liquidation\n"
+        "• /resume — clear drawdown halt\n"
+        "• /restart — queue a clean engine restart\n\n"
+        "<b>AI Sentiment</b>\n"
+        "• Type a pair (e.g. <code>EUR/USD</code>) for an ad-hoc AI analysis"
+    )
+    await update.message.reply_html(msg)
+
+
+async def cmd_indicators(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _auth(update): return
+    cfg = config_manager.load_engine_config()
+    tf  = cfg.get('strategy', {}).get('timeframe', '1h')
+    symbols = cfg.get('strategy', {}).get('active_symbols', [])
+    if not symbols:
+        await update.message.reply_text("No active_symbols configured.")
+        return
+
+    await update.message.reply_html("🚦 <b>FX Cycle Report</b>")
+    tasks   = [market_data.fetch_indicators(s, config=cfg, timeframe=tf) for s in symbols]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    data    = {s: d for s, d in zip(symbols, results)
+               if not isinstance(d, Exception) and d is not None}
+
+    blocks = []
+    for sym in symbols:
+        d = data.get(sym)
+        if not d:
+            blocks.append(f"<b>{sym}</b> — <i>⚠️ no data</i>")
+            continue
+        if d['regime'] == "TRENDING":
+            r_emoji = "🔥"
+            t_emoji = "🟢" if d['trend'] == "BULL" else "🔴"
+            primary = f"{t_emoji} EMA Trend ({d['trend']})"
+        else:
+            r_emoji = "🧊"
+            mid_d = (d['price'] - d['bb_middle']) / d['bb_middle'] * 100
+            loc = "below" if d['price'] < d['bb_middle'] else "above"
+            primary = f"🟡 {abs(mid_d):.1f}% {loc} mid BB"
+
+        rsi_tag = ""
+        if d['rsi'] < 35:   rsi_tag = " 🔻 oversold"
+        elif d['rsi'] > 65: rsi_tag = " 🔺 overbought"
+
+        d['symbol'] = sym
+        is_setup, strat_type = strategy.check_entry_signals(d, config=cfg)
+        lines = [
+            f"<b>{sym}</b> — ${fx_math.fp(d['price'], sym)}",
+            f"• Regime — {r_emoji} {d['regime']} (ADX {d['adx']:.1f})",
+            f"• Signal — {primary}",
+            f"• RSI — {d['rsi']:.1f}{rsi_tag} · ATR {fx_math.fp(d['atr'], sym)}",
+        ]
+        if is_setup:
+            lines.append(f"• 🚀 <b>Brewing</b> — {strat_type}")
+        blocks.append("\n".join(lines))
+
+    await update.message.reply_html("\n\n".join(blocks))
+
+
+async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _auth(update): return
+    cfg = config_manager.load_engine_config()
+    max_trades = cfg.get('strategy', {}).get('max_open_trades', 5)
+    shadow_mode = cfg.get('oanda', {}).get('shadow_mode', True)
+
+    # Use the cached prices we have in the open positions; for a freshly-loaded
+    # dashboard request we'd ideally re-fetch, but for the report use what's in
+    # market_states most recently.
+    snap = database.get_shadow_account_state()
+    equity = snap.get('equity', 0.0)
+    cash   = snap.get('cash',   0.0)
+    held   = snap.get('held_assets', {})
+
+    peak_eq = database.get_equity_peak() or 0.0
+    dd_pct  = max(0.0, (peak_eq - equity) / peak_eq * 100) if peak_eq > 0 else 0.0
+    risk_state = database.get_risk_state()
+    risk_icons = {'NORMAL':'✅', 'ALERT':'⚠️', 'DERISK':'🟡', 'HALT':'🚨'}
+    risk_icon = risk_icons.get(risk_state.get('risk_mode', 'NORMAL'), '✅')
+
+    mode_tag = "👻 SHADOW" if shadow_mode else "🔴 LIVE"
+    sections = [f"📊 <b>Command Report</b>  ·  {mode_tag}"]
+
+    acct_lines = [
+        f"• <b>Equity</b> — ${equity:,.2f}",
+        f"• <b>Mode</b> — {risk_icon} {risk_state.get('risk_mode', 'NORMAL')}",
+        f"• <b>Cash</b> — ${cash:,.2f}",
+    ]
+    initial = database.get_shadow_initial_capital()
+    if initial > 0:
+        pnl_pct = (equity - initial) / initial * 100
+        acct_lines.append(f"• <b>Total P&amp;L</b> — {pnl_pct:+.2f}% (from ${initial:,.0f})")
+    if peak_eq > 0 and dd_pct > 0:
+        acct_lines.append(f"• <b>Drawdown</b> — {dd_pct:.1f}% from peak ${peak_eq:,.2f}")
+    elif peak_eq > 0:
+        acct_lines.append("• <b>Drawdown</b> — none (at peak)")
+    acct_lines.append(f"• <b>Exposure</b> — {len(held)} / {max_trades} open")
+    if risk_state.get('daily_halt'):
+        acct_lines.append("• 🛑 <b>Daily Halt</b> — entries blocked for the session")
+    sections.append("<b>Account</b>\n" + "\n".join(acct_lines))
+
+    all_pos = database.get_all_open_positions()
+    if not all_pos:
+        sections.append("<b>Open Positions</b>\n<i>None</i>")
+    else:
+        lines = []
+        for p in all_pos:
+            sym       = p['symbol']
+            units     = p.get('shares', 0.0)
+            entry     = p.get('entry_price', 0.0)
+            strat_lbl = p.get('strategy', '?')
+            lines.append(
+                f"• <b>{sym}</b> — {units:,.0f} units @ ${fx_math.fp(entry, sym)} "
+                f"({strat_lbl})"
+            )
+        sections.append("<b>Open Positions</b>\n" + "\n".join(lines))
+
+    defense_lines = []
+    for p in all_pos:
+        sym  = p['symbol']
+        stop = p.get('current_stop') or 0.0
+        if stop > 0:
+            defense_lines.append(f"• <b>{sym}</b> — Stop ${fx_math.fp(stop, sym)}")
+        else:
+            defense_lines.append(f"• ⚠️ <b>{sym}</b> — <i>NAKED</i>")
+    if defense_lines:
+        sections.append("<b>Active Defense</b>\n" + "\n".join(defense_lines))
+
+    await update.message.reply_html("\n\n".join(sections))
+
+
+async def cmd_pnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _auth(update): return
+    all_trades = database.get_closed_trades()
+    if not all_trades:
+        await update.message.reply_text("No closed shadow trades yet.")
+        return
+
+    cfg = config_manager.load_engine_config()
+    min_trades = cfg.get('tuning', {}).get('min_trades_to_tune', 10)
+
+    stats: dict = {}
+    for t in all_trades:
+        s = stats.setdefault(t['symbol'], {'wins': 0, 'gross_win': 0.0,
+                                            'gross_loss': 0.0, 'pnls': [], 'usd': 0.0})
+        pnl = t['pnl_pct']
+        s['pnls'].append(pnl)
+        s['usd'] += t.get('pnl_usd', 0.0)
+        if pnl > 0:
+            s['wins'] += 1
+            s['gross_win'] += pnl
+        else:
+            s['gross_loss'] += abs(pnl)
+
+    sections = ["📊 <b>Shadow P&amp;L Report</b>"]
+    by_sym = []
+    for sym, s in sorted(stats.items()):
+        n   = len(s['pnls'])
+        wr  = s['wins'] / n * 100
+        pf  = (s['gross_win'] / s['gross_loss']) if s['gross_loss'] > 0 else float('inf')
+        avg = sum(s['pnls']) / n
+        pf_str = f"{pf:.2f}" if pf != float('inf') else "∞"
+        usd_str = f"{'+' if s['usd'] >= 0 else ''}${s['usd']:,.2f}"
+        by_sym.append(f"• <b>{sym}</b> — {n} trades · WR {wr:.0f}% · "
+                       f"PF {pf_str} · Avg {avg:+.1f}% · {usd_str}")
+    sections.append("<b>By Pair</b>\n" + "\n".join(by_sym))
+
+    total_trades = sum(len(v['pnls']) for v in stats.values())
+    total_wins   = sum(v['wins'] for v in stats.values())
+    overall_wr   = total_wins / total_trades * 100 if total_trades else 0.0
+    net_usd      = sum(v['usd'] for v in stats.values())
+    net_emoji    = "🟢" if net_usd > 0 else ("🔴" if net_usd < 0 else "⚪")
+    best_sym, best_data = max(stats.items(), key=lambda x: len(x[1]['pnls']))
+    best_count = len(best_data['pnls'])
+    summary = [
+        f"• <b>Total Trades</b> — {total_trades}",
+        f"• <b>Overall WR</b> — {overall_wr:.0f}%",
+        f"• <b>Net P&amp;L</b> — {net_emoji} {'+' if net_usd >= 0 else ''}${net_usd:,.2f}",
+    ]
+    if best_count >= min_trades:
+        summary.append(f"• ✅ {best_sym} has {best_count} closes — tuning cycle eligible")
+    else:
+        summary.append(f"• ⏳ {min_trades - best_count} more closes needed on {best_sym} "
+                        f"for first tuning cycle")
+    sections.append("<b>Summary</b>\n" + "\n".join(summary))
+
+    tuning_log = database.get_tuning_summary()
+    if tuning_log:
+        tlines = [f"• <b>{e['symbol']}</b>/{e['parameter']} — "
+                  f"{e['old_value']}→{e['new_value']} [{e['status']}]"
+                  for e in tuning_log[:5]]
+        sections.append("🔬 <b>Recent Tuning Activity</b>\n" + "\n".join(tlines))
+
+    await update.message.reply_html("\n\n".join(sections))
+
+
+async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/buy PAIR USD — manual buy, bypasses consensus. Shadow only."""
+    if not _auth(update): return
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /buy EUR/USD 1000")
+        return
+    sym_raw, usd_raw = context.args[0], context.args[1]
+    sym = _normalize_symbol(sym_raw)
+    if sym is None:
+        await update.message.reply_text(f"❌ Unrecognized FX pair: {sym_raw}")
+        return
+    try:
+        amount_usd = float(usd_raw)
+    except ValueError:
+        await update.message.reply_text(f"❌ Invalid USD amount: {usd_raw}")
+        return
+    if not execution.is_market_open():
+        await update.message.reply_text("🛑 FX market is closed (weekend). No new entries.")
+        return
+
+    cfg = config_manager.load_engine_config()
+    tf  = cfg.get('strategy', {}).get('timeframe', '1h')
+    d   = await market_data.fetch_indicators(sym, config=cfg, timeframe=tf)
+    if not d:
+        await update.message.reply_text(f"❌ Couldn't fetch data for {sym}")
+        return
+
+    # Manual sizing: caller specifies USD; convert to units via fx_math
+    entry = d['price']
+    if fx_math.quote_currency(sym) == "USD":
+        units = int(amount_usd / entry)
+    else:
+        units = int(amount_usd)  # USD-base: 1 unit = $1
+    if units <= 0:
+        await update.message.reply_text(
+            f"❌ ${amount_usd:.2f} can't buy 1 full unit of {sym} at "
+            f"${fx_math.fp(entry, sym)}"
+        )
+        return
+
+    initial_stop_mult = cfg.get('ratchet', {}).get('initial_stop_mult', 2.0)
+    stop_price = entry - (d['atr'] * initial_stop_mult)
+    notional   = fx_math.position_notional_usd(sym, units, entry)
+    cash       = database.get_shadow_cash()
+    if notional > cash:
+        await update.message.reply_text(
+            f"⚠️ Insufficient shadow cash (${cash:,.2f}) for ${notional:,.2f} buy."
+        )
+        return
+
+    database.log_trade(sym, 'SHADOW BUY', entry, units, 'MANUAL OVERRIDE',
+                       'Manual user /buy (shadow mode)')
+    database.record_open_position(sym, entry, 'MANUAL OVERRIDE',
+                                  entry_atr=d['atr'], shares=units)
+    database.update_shadow_stop(sym, stop_price)
+    database.adjust_shadow_cash(-notional)
+    await update.message.reply_html(
+        f"👻 <b>SHADOW MANUAL BUY</b>\n"
+        f"Pair: {sym}\n"
+        f"Units: {units:,} @ ${fx_math.fp(entry, sym)}\n"
+        f"Stop: ${fx_math.fp(stop_price, sym)}\n"
+        f"Notional: ${notional:,.2f}"
+    )
+
+
+async def cmd_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Arm two-step emergency liquidation. /confirm_kill within 60s to execute."""
+    global _kill_armed_at
+    if not _auth(update): return
+    _kill_armed_at = time.time()
+    open_count = len(database.get_all_open_positions())
+    await update.message.reply_html(
+        "🚨 <b>EMERGENCY KILL SWITCH ARMED</b> 🚨\n\n"
+        f"Will close all <b>{open_count}</b> open shadow positions at market.\n"
+        f"Send <code>/confirm_kill</code> within {KILL_WINDOW_SECONDS}s to proceed."
+    )
+
+
+async def cmd_confirm_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Two-step confirm — close all open shadow positions at current price."""
+    global _kill_armed_at
+    if not _auth(update): return
+    if _kill_armed_at == 0 or (time.time() - _kill_armed_at) > KILL_WINDOW_SECONDS:
+        await update.message.reply_text(
+            f"❌ Kill switch not armed (or window expired). Send /kill first."
+        )
+        return
+    _kill_armed_at = 0
+    await update.message.reply_html("👻 <b>EXECUTING SHADOW KILL...</b>")
+
+    cfg = config_manager.load_engine_config()
+    tf  = cfg.get('strategy', {}).get('timeframe', '1h')
+    closed = 0
+    for pos in database.get_all_open_positions():
+        sym = pos['symbol']
+        try:
+            d = await market_data.fetch_indicators(sym, config=cfg, timeframe=tf)
+            if not d:
+                continue
+            price = d['price']
+            entry = pos['entry_price']
+            units = pos.get('shares', 0.0)
+            pnl_usd = (fx_math.position_notional_usd(sym, units, price)
+                       - fx_math.position_notional_usd(sym, units, entry))
+            pnl_pct = ((price - entry) / entry * 100) if entry else 0.0
+            database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
+                               pos.get('strategy', '?'),
+                               f'KILL SWITCH: {pnl_pct:.1f}%')
+            database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
+            database.close_open_position(sym)
+            closed += 1
+        except Exception as e:
+            logger.error(f"[{sym}] kill close failed: {e}")
+    await update.message.reply_html(
+        f"✅ <b>SHADOW KILL COMPLETE.</b> {closed} position(s) closed."
+    )
+
+
+async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Clear drawdown halt — re-checks DD first; refuses if still over threshold."""
+    if not _auth(update): return
+    cfg = config_manager.load_engine_config()
+    risk_cfg = cfg.get('risk', {})
+    halt_pct = risk_cfg.get('drawdown_halt_pct', 25.0)
+
+    snap = database.get_shadow_account_state()
+    equity = snap.get('equity', 0.0)
+    peak = database.get_equity_peak() or 0.0
+    dd_pct = max(0.0, (peak - equity) / peak * 100) if peak > 0 else 0.0
+
+    if dd_pct >= halt_pct:
+        await update.message.reply_html(
+            f"❌ <b>Resume refused.</b>\n"
+            f"Drawdown is {dd_pct:.1f}% (limit {halt_pct:.0f}%). Wait for recovery."
+        )
+        return
+    database.update_risk_state(risk_mode='NORMAL', daily_halt=0)
+    await update.message.reply_html(
+        f"✅ <b>Resumed.</b>\n"
+        f"Drawdown {dd_pct:.1f}% under {halt_pct:.0f}% threshold. risk_mode → NORMAL."
+    )
+
+
+async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _auth(update): return
+    try:
+        RESTART_FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        RESTART_FLAG_PATH.touch()
+        await update.message.reply_html(
+            "🔄 <b>Restart queued</b>\n"
+            "The engine will exit at the next cycle and compose will respawn it."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Could not write restart flag: {e}")
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Plain text = pair name → ad-hoc AI sentiment."""
+    if not _auth(update): return
+    sym = _normalize_symbol(update.message.text)
+    if sym is None:
+        await update.message.reply_text(
+            "Send a 6-letter FX pair like <code>EURUSD</code> or "
+            "<code>EUR/USD</code> for an AI sentiment query.",
+            parse_mode='HTML',
+        )
+        return
+    cfg = config_manager.load_engine_config()
+    tf  = cfg.get('strategy', {}).get('timeframe', '1h')
+    d   = await market_data.fetch_indicators(sym, config=cfg, timeframe=tf)
+    if not d:
+        await update.message.reply_text(f"❌ Couldn't fetch data for {sym}")
+        return
+    llm_cfg = cfg.get('ai_agent', {}).get('sentiment_analysis', {})
+    is_bull, verdict_str, body = await ai_brain.get_ai_consensus(
+        symbol=sym, price=d['price'], strategy_type='MANUAL',
+        indicators=d, supporting_reasons=['Manual sentiment query'],
+        brave_key=secrets.get('brave_api_key'),
+        llm_base_url=llm_cfg.get('api_base'),
+        model_id=llm_cfg.get('model_id'),
+    )
+    sentiment = "🟢 BULLISH" if is_bull else ("🔴 BEARISH" if verdict_str.startswith('BEARISH') else "⚪ NEUTRAL")
+    await update.message.reply_html(
+        f"🧠 <b>AI Analysis · {sym}</b>\n"
+        f"Price: ${fx_math.fp(d['price'], sym)} | RSI: {d['rsi']:.1f} | "
+        f"ADX: {d['adx']:.1f} | {d['regime']}\n"
+        f"Verdict: {sentiment}\n\n"
+        f"{html_escape(body)}"
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TRADING LOOP (background task)
+# ════════════════════════════════════════════════════════════════════════════
+async def trading_loop_async() -> None:
+    """The autonomous trading loop. Runs concurrently with Telegram polling."""
     try:
         database.init_db()
         logger.info(f"DB schema ready at {database.DB_PATH}")
     except Exception as e:
         logger.warning(f"init_db() failed (continuing): {e}")
 
-    # Initialize the shadow account if it doesn't exist
     try:
         initial = config_manager.load_engine_config().get('risk', {}).get('initial_capital', 10000.0)
         database.init_shadow_account(initial_capital=initial)
     except Exception as e:
         logger.warning(f"init_shadow_account() failed (continuing): {e}")
 
-    # Cred check at boot — non-fatal. If Oanda creds are missing the engine
-    # still cycles but indicator fetches return None and nothing trades.
-    client = market_data.get_client()
-    if client is None:
-        logger.warning(
-            "Sulla is running without Oanda credentials. Cycles will idle "
-            "until OANDA_API_TOKEN and OANDA_ACCOUNT_ID are set in "
-            "~/swarm/sulla/.env, then `docker compose up -d --force-recreate "
-            "sulla-engine` so the new env vars load."
-        )
+    if market_data.get_client() is None:
+        logger.warning("Sulla running without Oanda credentials — trading idle.")
 
     config: dict = {}
     while not _shutting_down:
@@ -414,11 +834,10 @@ async def main_async() -> None:
             _consume_restart_flag()
             os._exit(0)
 
-        # Hot-reload config every cycle
         try:
             config = config_manager.load_engine_config()
         except Exception as e:
-            logger.error(f"Config load failed: {e}. Falling back to previous.")
+            logger.error(f"Config load failed: {e}")
 
         strat = config.get('strategy', {})
         symbols   = strat.get('active_symbols', [])
@@ -434,7 +853,7 @@ async def main_async() -> None:
         sleep_total = max(60, interval * 60)
         slept = 0
         while slept < sleep_total and not _shutting_down:
-            time.sleep(30)
+            await asyncio.sleep(30)
             slept += 30
             if _check_restart_flag():
                 logger.info("Restart flag detected mid-sleep; exiting for compose to restart.")
@@ -442,7 +861,103 @@ async def main_async() -> None:
                 os._exit(0)
             _touch_heartbeat()
 
-    logger.info("Sulla shutting down cleanly.")
+
+# ════════════════════════════════════════════════════════════════════════════
+# BOOTSTRAP
+# ════════════════════════════════════════════════════════════════════════════
+async def main_async() -> None:
+    global _bot
+    _install_signal_handlers()
+    logger.info("=== Sulla Phase 3b engine starting ===")
+
+    telegram_token = secrets.get('telegram_bot_token')
+    telegram_user  = secrets.get('telegram_user_id')
+
+    # If Telegram isn't configured, skip the bot entirely and just run the
+    # trading loop. Keeps the engine functional pre-BotFather setup.
+    if not (telegram_token and telegram_user):
+        logger.warning(
+            "Telegram not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_USER_ID "
+            "missing); running headless. Trading loop will still execute."
+        )
+        await trading_loop_async()
+        return
+
+    # Build the Telegram app
+    app = (
+        Application.builder()
+        .token(telegram_token)
+        .read_timeout(15)
+        .write_timeout(15)
+        .build()
+    )
+    app.add_handler(CommandHandler("indicators",   cmd_indicators))
+    app.add_handler(CommandHandler("report",       cmd_report))
+    app.add_handler(CommandHandler("pnl",          cmd_pnl))
+    app.add_handler(CommandHandler("buy",          cmd_buy))
+    app.add_handler(CommandHandler("kill",         cmd_kill))
+    app.add_handler(CommandHandler("confirm_kill", cmd_confirm_kill))
+    app.add_handler(CommandHandler("resume",       cmd_resume))
+    app.add_handler(CommandHandler("restart",      cmd_restart))
+    app.add_handler(CommandHandler("help",         cmd_help))
+    app.add_handler(CommandHandler("start",        cmd_help))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    _bot = app.bot
+
+    # Register the command menu for slash-autocomplete
+    try:
+        await app.bot.set_my_commands([
+            BotCommand("indicators",   "Technical readout for all pairs"),
+            BotCommand("report",       "Portfolio audit"),
+            BotCommand("pnl",          "Shadow P&L report"),
+            BotCommand("buy",          "Manual buy: /buy PAIR USD"),
+            BotCommand("kill",         "Begin emergency liquidation"),
+            BotCommand("confirm_kill", "Confirm liquidation"),
+            BotCommand("resume",       "Clear drawdown halt"),
+            BotCommand("restart",      "Queue clean engine restart"),
+            BotCommand("help",         "Show this command list"),
+        ])
+    except Exception as e:
+        logger.warning(f"set_my_commands failed (non-fatal): {e}")
+
+    # Boot announcement
+    try:
+        await app.bot.send_message(
+            chat_id=telegram_user,
+            text=(
+                "📈 <b>Sulla (FX) ONLINE</b>\n"
+                "Connected to Oanda Practice. Shadow mode.\n"
+                "Send /help for the command list."
+            ),
+            parse_mode='HTML',
+        )
+    except Exception as e:
+        logger.warning(f"Boot announcement failed: {e}")
+
+    # Start the trading loop as a background task. Both run concurrently.
+    trade_task = asyncio.create_task(trading_loop_async())
+
+    # Idle until shutdown. The 2s poll beats sleeping for an hour because
+    # docker stop's grace window is 10s by default.
+    while not _shutting_down:
+        await asyncio.sleep(2)
+
+    logger.info("Shutdown requested; tearing down Telegram + trading loop.")
+    try:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+    except Exception as e:
+        logger.warning(f"Telegram shutdown error: {e}")
+    trade_task.cancel()
+    try:
+        await trade_task
+    except asyncio.CancelledError:
+        pass
 
 
 def main() -> None:

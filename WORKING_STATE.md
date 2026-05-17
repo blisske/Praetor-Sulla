@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-17 (Phase 3 — consensus engine + shadow buy/sell + FX math + brand color)
+> Last updated: 2026-05-17 (Phase 3b — Telegram bot + trade-event notifications)
 
 ---
 
@@ -9,13 +9,13 @@
 
 | Item | Value |
 |---|---|
-| Phase | **3 — Consensus + shadow trading + FX math** |
+| Phase | **3b — Telegram bot + trade notifications wired** |
 | Engine mode | Full 5-min cycle: indicator fetch → shadow exit engine → 4-layer consensus → shadow buy/sell against the $10K paper ledger. No Oanda orders (shadow-only by design). |
 | Broker | Oanda v20 REST — client written, awaiting `OANDA_API_TOKEN` + `OANDA_ACCOUNT_ID` in `~/swarm/sulla/.env` |
 | Universe | EUR/USD, GBP/USD, AUD/USD, NZD/USD, USD/JPY, USD/CHF, USD/CAD (7 majors, hot-reloaded from Config.yaml each cycle) |
 | Timeframe | 1h |
 | Shadow ledger | Empty (`/app/data/sulla.db` schema initialized, no trades yet) |
-| Telegram | Off (Phase 2 engine doesn't import any Telegram code so no token conflict with Anton/Tiberius) |
+| Telegram | **Wired** — dedicated Sulla bot, full command set, autocomplete registered, trade-event notifications live |
 | Dashboard | Reachable at `http://192.168.0.135:8085/` (LAN debug) and `https://sulla.blisske.hopto.org/` (Traefik + Let's Encrypt) |
 
 ---
@@ -387,6 +387,136 @@ what it should: scanning, logging, nothing brewing.
    handlers from Anton.
 4. **Phase 4: Macro calendar** — most useful before live mode. NFP /
    FOMC blackouts skip new entries N hours before high-impact events.
+
+---
+
+---
+
+## Phase 3b — Telegram Bot + Trade Notifications (2026-05-17)
+
+Dedicated Sulla Telegram bot wired alongside the Phase 3 trading loop. Both
+run concurrently as async tasks. The user created a fresh bot via @BotFather
+(separate token from Anton's and Tiberius's — Telegram only allows one
+polling client per token, so each bot in the swarm needs its own).
+
+### What landed
+
+- **`main.py` restructured** — Phase 3's `main_async` (which directly ran
+  the trading loop) split into:
+  - `trading_loop_async()` — the autonomous cycle, now a background task
+  - `main_async()` — bootstraps the Telegram app, registers all handlers,
+    starts polling, spawns the trading loop as a concurrent task, and
+    idles on a 2-second shutdown poll
+  - Telegram is **optional** — if `TELEGRAM_BOT_TOKEN` / `TELEGRAM_USER_ID`
+    are empty, the engine logs a warning and runs the trading loop headless
+    (keeps the engine functional pre-BotFather setup or if the user
+    deliberately wants no Telegram surface)
+
+- **Command handlers** ported from Anton (FX-adapted):
+  - `/help` — full command reference, FX-tuned (no `/protect` or `/apply`
+    sections; Sulla's shadow contract means no naked stops can exist and
+    there's no ratchet-proposal flow)
+  - `/indicators` — regime / RSI / ADX / trend across all 7 majors, FX
+    precision via `fx_math.fp()` (USD/JPY at 3dp, others at 5dp), one
+    bullet-list block per pair, "Brewing" call-out when a setup is detected
+  - `/report` — Account / Open Positions / Active Defense sections.
+    Reads from `database.get_shadow_account_state()`. Surfaces equity,
+    cash, total P&L from initial capital, drawdown %, risk mode + daily
+    halt status. Open positions show units + entry + strategy. Defense
+    section flags any naked stops.
+  - `/pnl` — same shape as Anton's: By Pair / Summary / Recent Tuning
+    Activity. Each row shows trades / WR / PF / Avg% / dollar P&L.
+    Summary has Net P&L with direction emoji + tuning eligibility line.
+    Recent Tuning Activity surfaces the most-recent 5 entries from
+    `database.get_tuning_summary()`.
+  - `/buy PAIR USD` — manual buy bypassing consensus. Accepts pair in
+    any case/separator (`/buy EURUSD 1000`, `/buy eur/usd 1000`,
+    `/buy EUR_USD 1000` all work). Converts USD → units via
+    `fx_math` (USD-quote pairs: `units = USD/price`; USD-base pairs:
+    `units = USD`). Records SHADOW BUY in DB, debits cash, sets ATR stop.
+  - `/kill` → `/confirm_kill` — two-step emergency liquidation with a
+    60-second window. Closes every open shadow position at current
+    market price, credits the synthetic ledger, logs `KILL SWITCH:` in
+    the trades verdict. Refuses if /confirm_kill comes after the window
+    expires.
+  - `/resume` — clears drawdown halt. Re-checks current DD vs
+    `drawdown_halt_pct`; refuses if still over threshold so a fat-finger
+    can't bypass the safety. On clear: sets risk_mode → NORMAL,
+    daily_halt → 0.
+  - `/restart` — touches `.restart_engine`. Engine catches it within
+    30 seconds (mid-sleep flag check) and `os._exit(0)`'s so compose
+    respawns.
+  - `handle_text` — plain text matching `[A-Z]{6}` or `[A-Z]{3}/[A-Z]{3}`
+    triggers an ad-hoc AI sentiment query for that pair. Returns the
+    Gemma 4 26B verdict + analyst commentary (using the May-12 fixed
+    answer-body rendering).
+
+- **`set_my_commands` registration** — typing `/` in Telegram surfaces
+  the 9-command autocomplete menu with one-line descriptions. Wired
+  best-effort at startup; logged-but-non-fatal on failure.
+
+- **Trade-event notifications** — the trading loop now sends Telegram
+  messages on:
+  - `SHADOW BUY` — full consensus chain + sentiment + AI verdict body
+    (mirrors Anton/Tiberius's enriched message format)
+  - `SHADOW STOP HIT` — direction emoji (🟢/🔴/⚪), strategy, % + $ P&L,
+    entry→stop price
+  - `SHADOW TAKE PROFIT` — direction emoji, strategy, % + $ P&L,
+    entry→exit price
+  - `BEARISH VETO` — when AI vetoes an otherwise-passing consensus,
+    surfaces the analyst's reasoning so the user understands what was
+    almost taken
+  Notifications wired via a `_notify()` helper that no-ops when `_bot`
+  is None — keeps the trading loop callable even without Telegram.
+
+- **Boot announcement** — engine sends `"📈 Sulla (FX) ONLINE"` on
+  startup once Telegram is wired. First boot failed with "Chat not
+  found" because Telegram allowlists DMs per-bot and the user had to
+  `/start` the new bot first. After `/help` was sent once, the
+  channel is established and all subsequent notifications work.
+
+### Verification
+
+```
+2026-05-17 15:43:54 === Sulla Phase 3b engine starting ===
+2026-05-17 15:43:57 HTTP getMe → 200 OK
+2026-05-17 15:43:57 Application started
+2026-05-17 15:43:57 setMyCommands → 200 OK
+2026-05-17 15:43:57 sendMessage → 400 Bad Request (boot announcement, fixed by /start)
+2026-05-17 15:43:57 Oanda client ready: account='101-001-39349095-001', environment='practice'
+2026-05-17 15:43:57 --- CYCLE START | symbols: 7 | tf: 1h ---
+```
+
+User confirmed `/help` returned the full FX-tuned command reference.
+Bot is bidirectional and trade notifications will fire on the next
+SHADOW BUY / SHADOW SELL the engine produces.
+
+### What did NOT land in Phase 3b
+
+- **`/protect` and `/apply`** — deliberately skipped. Sulla shadow-mode
+  positions always have an in-DB stop set on entry so no naked-stop
+  scenario can exist. Phase 6 (live Oanda) might bring `/protect` back
+  if Oanda's order-rejection edge cases create naked-position windows;
+  decide then.
+- **Phase 4 (macro calendar blackout)** — separate effort. NFP / FOMC /
+  CPI / ECB / BoJ event-window skipping.
+- **Phase 5 (Guide page rewrite)** — `web/src/pages/Guide.jsx` is
+  still the Anton TradFi guide; needs FX-specific Section 7 (the macro-
+  blackout calendar, once Phase 4 lands), updated Telegram command
+  table, FX-specific glossary.
+
+### Operational state at handoff
+
+- **All four containers healthy:** sulla-engine, sulla-api, sulla-web,
+  swarm-proxy
+- **Telegram bot live:** receives commands, sends notifications, full
+  command-menu autocomplete
+- **Oanda client live:** fetching 7 majors every 5 minutes
+- **No open shadow positions** (engine is still scanning; the current
+  strong-dollar / RANGING-USD/JPY tape isn't firing any of the four
+  paradigms)
+- **First entry**, when it comes, will trigger the full notification
+  chain end-to-end
 
 ---
 
