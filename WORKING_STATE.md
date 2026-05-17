@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-17 (Phase 5 — FX Guide page rewrite)
+> Last updated: 2026-05-17 (Reveille + boot-suppression + login chart trace)
 
 ---
 
@@ -743,6 +743,48 @@ No Anton-era content surviving (no "TradFi", "PDT", "EOD force-exit",
   12:30 UTC)
 
 ---
+
+---
+
+## Daily Reveille + Boot Suppression (2026-05-17, late)
+
+The Phase 3 main.py rewrite didn't include a daily morning greeting (Anton
+and Tiberius both have one; Sulla did not). User asked whether all three
+bots reflect their market-open semantics correctly.
+
+Audit + landed work:
+- **Anton:** already correct. The market-open gate at the top of the cycle
+  loop (querying Alpaca's clock API) skips the entire cycle body —
+  including the reveille block — on weekends and holidays.
+- **Tiberius:** already correct (you'd fixed this earlier with rotating
+  flavor lines for 24/7 framing).
+- **Sulla:** had no reveille. Added one in `_maybe_send_reveille()` with
+  21 rotating FX-themed lines (Roman/imperial, FX-native "London bid New
+  York offered", wry one-liners). Fires once per calendar day after 07:30
+  MT IF `execution.is_market_open()` is True (FX 24/5 gate correctly
+  handles all-Saturday + Sunday-before-17:00-ET + Friday-after-17:00-ET).
+
+Also fixed (across all three bots): the boot greeting and the daily
+reveille were firing back-to-back on any restart during session hours
+(config save, manual /restart, container respawn). Now the bootstrap
+stamps `_last_reveille_day` to today's date after the boot greeting
+succeeds, so the cycle's reveille check sees "already sent today" and
+skips. Verified on this deploy — single `sendMessage` at engine start
+for each bot.
+
+## Login: multi-pair chart trace (2026-05-17, late)
+
+The login page's gold `DramaticCandles` motif was shared verbatim across
+Anton, Tiberius, and Sulla, making the three pages look like recolors of
+the same template. Replaced Sulla's with `MultiPairChartTrace` —
+seven smooth Bezier curves in graduated blues, one per major. Two hero
+lines (EUR/USD in cyan, USD/JPY in electric blue) have a Gaussian-blur
+glow + pulsing endpoint dot suggesting live data; the other five recede
+into the background in graduated blue depth. Each path is hand-tuned to
+look like distinct price-action shapes rather than uniform sine waves.
+
+The currency-glyph pattern (€ £ ¥ $ AUD NZD CHF CAD) from the earlier
+rebrand stays as the layer underneath the chart trace.
 
 ## How to Resume With Claude
 
