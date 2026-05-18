@@ -20,7 +20,7 @@ oanda:
   environment: practice   # "practice" or "live"; .env's OANDA_ENVIRONMENT wins.
 
 consensus:
-  min_consensus_score: 2    # primary(1) + 2 of 3 supporting signals minimum
+  min_consensus_score: 3    # primary(1) + 2 of 3 supporting signals minimum (was 2 — comment/value mismatch fixed 2026-05-17)
   bearish_abort: true        # hard stop on BEARISH verdict, logged to DB
   llm_reasoning: true        # thinking mode on by default
   log_reasoning: false       # store <think> block to DB (enable when Qwen3 arrives)

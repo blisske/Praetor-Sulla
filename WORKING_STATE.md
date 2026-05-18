@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-17 (Reveille + boot-suppression + login chart trace)
+> Last updated: 2026-05-17 (BEARISH VETO triage — consensus floor + cooldown + truncation)
 
 ---
 
@@ -785,6 +785,41 @@ look like distinct price-action shapes rather than uniform sine waves.
 
 The currency-glyph pattern (€ £ ¥ $ AUD NZD CHF CAD) from the earlier
 rebrand stays as the layer underneath the chart trace.
+
+## BEARISH VETO triage (2026-05-17, evening)
+
+Telegram saw a burst of three BEARISH VETO messages on USD/JPY VB within
+~17 minutes — each message also chopped mid-word at the 500-char hard
+slice. Three stacked issues:
+
+1. **Prefilter too permissive.** `consensus.min_consensus_score: 2`
+   contradicted the inline comment ("primary(1) + 2 of 3 supporting
+   signals minimum"), which should be 3. Anton had the same drift;
+   Tiberius was already at 3. Bumped to **3** on Anton and Sulla in
+   both `data/Config.yaml` (live, hot-reloaded) and `repo/core/Config.yaml`
+   (image baseline). This tightens the gate so weak setups (USD/JPY VB
+   with ADX 13.6, RSI 68.8, volume 0.4× — a momentum trap) never reach
+   the LLM in the first place.
+2. **Veto-notification spam.** Same setup re-firing every cycle issued
+   one Telegram message per cycle. Added a 60-min cooldown per
+   `(symbol, paradigm)` tuple in `core/main.py` via module-level
+   `_veto_last_notified_at` dict + `_should_notify_veto()` /
+   `_mark_veto_notified()` helpers. **The LLM call still runs and the
+   veto still logs to stdout each cycle — only the Telegram notification
+   is debounced.** Dict is in-memory and resets on restart (acceptable —
+   you'll see the first veto after every restart anyway).
+3. **Mid-word truncation.** Removed the `[:500]` hard slice in the veto
+   notification path. The full `verdict_body` now flows through. The
+   `ai_brain` layer already caps verdicts at 3500 chars, which fits
+   inside Telegram's 4096-char message limit with the header prefix.
+
+Tiberius got the same `_veto_last_notified_at` cooldown + truncation
+removal. Anton's veto path only logs to DB (no Telegram notification by
+design) so it received only the Config bump.
+
+Deployed all three engines via
+`docker compose up -d --build anton-engine tiberius-engine sulla-engine`
+from `~/swarm/`. All three healthy and cycling at 20:07 ET.
 
 ## How to Resume With Claude
 

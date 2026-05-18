@@ -68,7 +68,14 @@ _shutting_down = False
 _bot = None             # Telegram Bot instance; None until main_async wires it
 _kill_armed_at = 0.0    # Unix ts when /kill was sent; /confirm_kill must follow within 60s
 _last_reveille_day = None  # date(year, month, day) of the last reveille; one per day
+_veto_last_notified_at: dict[tuple[str, str], float] = {}  # (symbol, paradigm) → unix ts;
+                                                            # used to debounce BEARISH VETO
+                                                            # notifications when the same setup
+                                                            # re-fires every cycle.
 KILL_WINDOW_SECONDS = 60
+VETO_COOLDOWN_SECONDS = 3600   # 60 min between veto notifications per (symbol, paradigm).
+                                # The LLM call + logger.info still happen each cycle; only the
+                                # Telegram notification is debounced.
 
 
 # Rotating flavor lines for the daily reveille. FX trades 24/5 (Sun 17:00 ET
@@ -151,6 +158,22 @@ async def _notify(html: str) -> None:
         )
     except Exception as e:
         logger.warning(f"Telegram notify failed: {e}")
+
+
+def _should_notify_veto(symbol: str, paradigm: str) -> bool:
+    """
+    Returns True when enough time has passed since the last veto notification
+    for this (symbol, paradigm) pair. Same setup re-vetoing in successive
+    cycles is suppressed to keep Telegram clean — the LLM call still runs and
+    the veto still logs to stdout, but the notification is debounced.
+    """
+    now = time.time()
+    last = _veto_last_notified_at.get((symbol, paradigm), 0.0)
+    return (now - last) >= VETO_COOLDOWN_SECONDS
+
+
+def _mark_veto_notified(symbol: str, paradigm: str) -> None:
+    _veto_last_notified_at[(symbol, paradigm)] = time.time()
 
 
 async def _maybe_send_reveille() -> None:
@@ -356,10 +379,17 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
 
     if bear_abort and verdict_str.startswith('BEARISH'):
         logger.info(f"[{sym}] BEARISH VETO ({paradigm}): aborting entry")
-        await _notify(
-            f"🚫 <b>BEARISH VETO</b> {sym} | {paradigm}\n"
-            f"{html_escape(verdict_body[:500])}"
-        )
+        # Notify only if outside the cooldown window — same setup re-vetoing in
+        # successive cycles would otherwise spam Telegram (USD/JPY 19:36 / 19:47
+        # / 19:53 etc.). Full verdict body, no truncation; the get_ai_consensus
+        # layer already caps at 3500 chars which fits inside Telegram's 4096
+        # message limit with the header prefix.
+        if _should_notify_veto(sym, paradigm):
+            await _notify(
+                f"🚫 <b>BEARISH VETO</b> {sym} | {paradigm}\n"
+                f"{html_escape(verdict_body)}"
+            )
+            _mark_veto_notified(sym, paradigm)
         return
     if not is_bullish:
         logger.info(f"[{sym}] AI {verdict_str} on {paradigm} — not bullish, holding")
