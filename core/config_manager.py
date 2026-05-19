@@ -116,22 +116,24 @@ def load_engine_config():
     return cfg
 def get_ratchet_multiplier(config):
     """
-    Calculates the current trailing stop multiplier based on Config.yaml.
-    Expands the trailing stop buffer during the final hour of trading 
-    (3:00 PM - 4:00 PM ET) to survive institutional 'Power Hour' volatility.
+    Returns the trailing-stop multiplier, optionally widened during the
+    configured high-volatility window. For FX, the canonical window is the
+    London/NY overlap (08:00-12:00 ET) where price moves are largest.
+    Configurable via ratchet.power_hour_defense in Config.yaml.
     """
     base_multiplier = config.get('ratchet', {}).get('trailing_stop_mult', 2.5)
-    ph_settings = config.get('ratchet', {}).get('power_hour_defense', {})
-    
-    if ph_settings.get('enabled', True):
-        ny_tz = pytz.timezone('America/New_York')
-        now_ny = datetime.datetime.now(ny_tz)
-        
-        # Power Hour: 15:00 to 15:59 Eastern Time
-        if now_ny.hour == 15:
-            buffer = ph_settings.get('atr_buffer', 0.5)
-            return base_multiplier + buffer
-            
+    ph_settings = config.get('ratchet', {}).get('power_hour_defense', {}) or {}
+
+    if not ph_settings.get('enabled', False):
+        return base_multiplier
+
+    start_h = int(ph_settings.get('start_hour_et', 8))
+    end_h   = int(ph_settings.get('end_hour_et', 12))
+    buffer  = float(ph_settings.get('atr_buffer', 0.3))
+
+    now_ny = datetime.datetime.now(pytz.timezone('America/New_York'))
+    if start_h <= now_ny.hour < end_h:
+        return base_multiplier + buffer
     return base_multiplier
 import copy
 

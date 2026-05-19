@@ -93,12 +93,14 @@ ratchet:
   atr_period: 14
   initial_stop_mult: 2.0
   trailing_stop_mult: 2.5
-  # FX equivalent of Anton's Power Hour defense: widen stops during the
-  # most-volatile window of each session. London/NY overlap (8:00-12:00 ET)
-  # is FX's highest-vol period. Phase 4 wires this up.
+  # FX equivalent of Anton's Power Hour defense: widen trailing stops
+  # during the London/NY overlap (08:00-12:00 ET), FX's highest-vol window.
+  # Wired into config_manager.get_ratchet_multiplier 2026-05-18.
   power_hour_defense:
-    enabled: false
-    atr_buffer: 0.5
+    enabled: true
+    atr_buffer: 0.3            # FX moves are less violent than equity closes; 0.3 conservative
+    start_hour_et: 8           # London/NY overlap start
+    end_hour_et: 12            # London/NY overlap end (exclusive)
 
 risk:
   initial_capital: 10000.0      # Shadow ledger starting balance ($10K to mirror Anton/Tiberius scale)

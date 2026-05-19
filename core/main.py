@@ -303,7 +303,10 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
             continue
 
         # ── C. Trailing ratchet ────────────────────────────────────────────
-        trail_mult = config.get('ratchet', {}).get('trailing_stop_mult', 2.5)
+        # Use config_manager helper so the London/NY overlap volatility
+        # window (configured via ratchet.power_hour_defense) widens stops
+        # automatically when active.
+        trail_mult = config_manager.get_ratchet_multiplier(config)
         new_stop = price - (atr * trail_mult)
         if cur_stop > 0 and new_stop > cur_stop:
             database.update_shadow_stop(sym, new_stop)
@@ -821,6 +824,85 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def cmd_apply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /apply [PAIR] — Authorize a pending stop-loss ratchet. Parity stub with
+    Tiberius. Sulla's shadow exit engine auto-ratchets on each cycle today,
+    so there's nothing queued for manual approval. Stays in the command set
+    for live-mode parity once Oanda execution wires in operator-confirmation
+    flow for real stop-order moves.
+    """
+    if str(update.effective_user.id) != secrets['telegram_user_id']:
+        return
+    await update.message.reply_html(
+        "🔄 <b>No pending ratchets</b>\n"
+        "Sulla auto-applies trailing-stop moves in shadow mode. This command "
+        "becomes meaningful once live Oanda execution is wired and stop "
+        "ratchets require operator confirmation."
+    )
+
+
+async def cmd_protect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /protect — Scan open positions and bootstrap protective stops on any row
+    that has current_stop = 0 (naked). In shadow mode the stop is written to
+    open_positions.current_stop in the DB; the exit engine reads it from
+    there on the next cycle. Live mode (post-Oanda integration) will also
+    place a real stop order via the Oanda v20 REST API.
+    """
+    if str(update.effective_user.id) != secrets['telegram_user_id']:
+        return
+
+    cfg = config_manager.load_engine_config()
+    shadow_mode = cfg.get('oanda', {}).get('shadow_mode', True)
+    stop_mult   = cfg.get('ratchet', {}).get('initial_stop_mult', 2.0)
+    tf          = cfg.get('strategy', {}).get('timeframe', '1h')
+
+    await update.message.reply_text("🛡️ Scanning open positions for naked stops...")
+
+    positions = database.get_all_open_positions()
+    if not positions:
+        await update.message.reply_text("No open positions to protect.")
+        return
+
+    protected = []
+    skipped   = []
+    for pos in positions:
+        sym  = pos['symbol']
+        cur_stop = pos.get('current_stop') or 0.0
+        if cur_stop > 0:
+            skipped.append(f"{sym} (already at {cur_stop:.5f})")
+            continue
+        try:
+            d = await market_data.fetch_indicators_async(sym, timeframe=tf)
+        except Exception as e:
+            skipped.append(f"{sym} (fetch failed: {e})")
+            continue
+        if not d or 'atr' not in d:
+            skipped.append(f"{sym} (no ATR)")
+            continue
+        sl_price = round(d['price'] - (d['atr'] * stop_mult), 5)
+        if sl_price <= 0 or sl_price >= d['price']:
+            skipped.append(f"{sym} (invalid stop)")
+            continue
+        database.update_shadow_stop(sym, sl_price)
+        protected.append(f"{sym} @ {sl_price:.5f}")
+
+    msg = ["🛡️ <b>Protection Scan Complete</b>"]
+    if protected:
+        msg.append(f"<b>Stops set ({len(protected)}):</b>")
+        msg.extend(f"  • {p}" for p in protected)
+    if skipped:
+        msg.append(f"<b>Skipped ({len(skipped)}):</b>")
+        msg.extend(f"  • {s}" for s in skipped)
+    if not protected and not skipped:
+        msg.append("All positions already protected.")
+    if not shadow_mode:
+        msg.append("<i>Note: live-mode stop orders via Oanda are not yet wired — DB stops only.</i>")
+
+    await update.message.reply_html("\n".join(msg))
+
+
 async def cmd_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Arm two-step emergency liquidation. /confirm_kill within 60s to execute."""
     global _kill_armed_at
@@ -1123,6 +1205,8 @@ async def main_async() -> None:
     app.add_handler(CommandHandler("report",       cmd_report))
     app.add_handler(CommandHandler("pnl",          cmd_pnl))
     app.add_handler(CommandHandler("buy",          cmd_buy))
+    app.add_handler(CommandHandler("protect",      cmd_protect))
+    app.add_handler(CommandHandler("apply",        cmd_apply))
     app.add_handler(CommandHandler("kill",         cmd_kill))
     app.add_handler(CommandHandler("confirm_kill", cmd_confirm_kill))
     app.add_handler(CommandHandler("resume",       cmd_resume))
@@ -1144,6 +1228,8 @@ async def main_async() -> None:
             BotCommand("report",       "Portfolio audit"),
             BotCommand("pnl",          "Shadow P&L report"),
             BotCommand("buy",          "Manual buy: /buy PAIR USD"),
+            BotCommand("protect",      "Set stops on naked positions"),
+            BotCommand("apply",        "Authorize pending stop ratchet (live mode)"),
             BotCommand("kill",         "Begin emergency liquidation"),
             BotCommand("confirm_kill", "Confirm liquidation"),
             BotCommand("resume",       "Clear drawdown halt"),
