@@ -1,7 +1,22 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-19 (Alpaca scaffolding purged: FX-native /api/session, config_manager pruned, alpaca-py uninstalled)
+> Last updated: 2026-05-19 (WebSocket event broadcasts — engine→dashboard real-time)
+
+---
+
+## 2026-05-19 — WebSocket event broadcasts wired
+
+**Problem found:** `ConnectionManager.broadcast()` was dead code across all three Praetor bots — defined but never called. The WS endpoint's own `while True` tick loop was carrying data (5s polling), so the dashboard wasn't actually frozen, but there was no event-driven push for SHADOW BUY/SELL fills or risk-mode transitions.
+
+**What landed (Sulla — mirrors Anton's architecture, since both have a persisted `risk_state` table):**
+- `core/database.py` — added `pending_events` table (engine writes, API drains, DB-as-IPC same pattern as `.restart_engine`) + `emit_event()` helper. Wrapped `log_trade()` to auto-emit `trade` events for any `SHADOW ` action, and `update_risk_state()` to auto-emit `risk_transition` events on actual mode change.
+- `api/main.py` — added `_drain_pending_events()` background task (1s cadence, ships via `manager.broadcast()`, prunes >7d). Extended `ConnectionManager` to track `(ws, user)` tuples so drained events broadcast to admin only.
+- `web/src/pages/Dashboard.jsx` — `onmessage` now handles `trade`/`risk_transition`. New `LiveEventStrip` renders an ephemeral flash strip under the risk banner; trade events also refetch `/trades` and `/equity`.
+
+**Verified:** schema migrated, smoke-test event round-tripped end-to-end on `sulla.db`. The pipeline is ready for when Phase 2's Oanda integration produces the first real SHADOW BUY fill.
+
+**Do not re-suggest:** `manager.broadcast()` is no longer dead code; the WS endpoint's 5s tick loop is intentionally kept as a safety net.
 
 ---
 

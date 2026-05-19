@@ -1,6 +1,8 @@
 import os
+import json
 import sqlite3
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ==============================================================================
@@ -172,6 +174,24 @@ def init_db():
             )
         ''')
 
+        # Table 10: Pending Events — engine writes, API drains and broadcasts
+        # over /ws. DB-as-IPC, same pattern as the .restart_engine flag file.
+        # broadcast_at is NULL until the API has shipped it; the drain task
+        # uses that as the work queue.
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS pending_events (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp     TEXT    NOT NULL,
+                event_type    TEXT    NOT NULL,
+                payload       TEXT    NOT NULL,
+                broadcast_at  TEXT
+            )
+        ''')
+        c.execute('''
+            CREATE INDEX IF NOT EXISTS idx_pending_events_unbroadcast
+            ON pending_events(id) WHERE broadcast_at IS NULL
+        ''')
+
         conn.commit()
 
         # --- SAFE MIGRATIONS ---
@@ -223,12 +243,38 @@ def init_db():
 # TRADE LOGGING
 # ==============================================================================
 
+def emit_event(event_type: str, payload: dict) -> None:
+    """
+    Queue an event for the API to broadcast over /ws. The API has a background
+    asyncio task that polls pending_events every ~1s, ships unbroadcast rows
+    via manager.broadcast(), and stamps broadcast_at.
+
+    Failures are swallowed: a broken event queue must never crash the engine.
+    Caller-owned payload is JSON-serialized as-is — keys/values must be
+    JSON-safe.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            "INSERT INTO pending_events (timestamp, event_type, payload) VALUES (?, ?, ?)",
+            (datetime.now(timezone.utc).isoformat(), event_type, json.dumps(payload)),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"emit_event({event_type}) failed: {e}")
+
+
 def log_trade(symbol, action, price, amount, strategy, verdict="", position_size_usd=0.0):
     """
     Writes a new trade event to the ledger.
 
     position_size_usd stores the dollar exposure at fill time, independent
     of price drift afterward — useful for the tuner + risk analytics.
+
+    Side effect: emits a `trade` WS event for SHADOW BUY / SHADOW SELL /
+    SHADOW BUY ADD actions so the dashboard sees fills in real time without
+    waiting for the 5s tick. Live-path actions are not surfaced.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -241,6 +287,18 @@ def log_trade(symbol, action, price, amount, strategy, verdict="", position_size
         conn.close()
     except Exception as e:
         logger.error(f"DATABASE ERROR: Failed to log trade for {symbol}: {e}")
+        return
+
+    if isinstance(action, str) and action.startswith("SHADOW "):
+        emit_event("trade", {
+            "symbol":            symbol,
+            "action":            action,
+            "price":             price,
+            "amount":            amount,
+            "strategy":          strategy,
+            "verdict":           (verdict or "")[:200],
+            "position_size_usd": position_size_usd,
+        })
 
 
 def log_market_state(symbol, price, adx, regime, trend, rsi, volume=None, avg_volume=None):
@@ -835,11 +893,32 @@ def update_risk_state(**fields):
     """
     Updates one or more risk_state fields. daily_halt accepts bool, stored as
     INTEGER. Caller passes only the fields that need to change.
+
+    Side effect: emits a `risk_transition` WS event when risk_mode actually
+    changes (read-before-write so callers can pass risk_mode='NORMAL'
+    idempotently without spamming the queue). daily_halt 0→1 also fires.
     """
     if not fields:
         return
+    # _reason rides along for the WS event but isn't a DB column. Pop before
+    # building the SET clause so it doesn't blow up as "no such column".
+    reason = fields.pop('_reason', '')
     if 'daily_halt' in fields:
         fields['daily_halt'] = 1 if fields['daily_halt'] else 0
+
+    prev_mode, prev_halt = None, None
+    if 'risk_mode' in fields or 'daily_halt' in fields:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute(
+                "SELECT risk_mode, daily_halt FROM risk_state WHERE id = 1"
+            ).fetchone()
+            conn.close()
+            if row:
+                prev_mode, prev_halt = row[0], row[1]
+        except Exception:
+            pass
+
     cols = list(fields.keys())
     set_clause = ", ".join(f"{c} = ?" for c in cols) + ", updated = CURRENT_TIMESTAMP"
     values = [fields[c] for c in cols]
@@ -851,6 +930,22 @@ def update_risk_state(**fields):
         conn.close()
     except Exception as e:
         logger.error(f"DATABASE ERROR: Failed to update risk_state {fields}: {e}")
+        return
+
+    new_mode = fields.get('risk_mode')
+    if new_mode is not None and new_mode != prev_mode:
+        emit_event("risk_transition", {
+            "from":    prev_mode or "UNKNOWN",
+            "to":      new_mode,
+            "reason":  reason,
+        })
+    new_halt = fields.get('daily_halt')
+    if new_halt is not None and new_halt != (prev_halt or 0):
+        emit_event("risk_transition", {
+            "from":    "NO_DAILY_HALT" if not prev_halt else "DAILY_HALT",
+            "to":      "DAILY_HALT" if new_halt else "NO_DAILY_HALT",
+            "reason":  reason,
+        })
 
 
 def get_shadow_account_state(latest_prices: dict | None = None) -> dict:

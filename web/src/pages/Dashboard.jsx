@@ -54,6 +54,48 @@ function RiskModeBanner({ equity, lastTick }) {
   )
 }
 
+function LiveEventStrip({ event }) {
+  if (!event) return null
+  const { kind, data } = event
+  let icon, color, bg, border, headline, detail
+  if (kind === 'trade') {
+    const isBuy  = (data.action || '').includes('BUY')
+    const isSell = (data.action || '').includes('SELL')
+    icon = isBuy ? '🟢' : (isSell ? '🔴' : '⚪')
+    color  = isBuy ? '#10B981' : (isSell ? '#ef4444' : '#94a3b8')
+    bg     = isBuy ? 'rgba(16,185,129,0.10)' : (isSell ? 'rgba(239,68,68,0.10)' : 'rgba(148,163,184,0.10)')
+    border = `${color}40`
+    headline = `${data.action} — ${data.symbol}`
+    const px = typeof data.price === 'number' ? data.price.toFixed(5) : ''
+    const qty = typeof data.amount === 'number' ? data.amount : ''
+    detail = isSell
+      ? `${qty} P&L @ ${px} · ${data.strategy || ''}`
+      : `${qty} units @ ${px} · ${data.strategy || ''}`
+  } else if (kind === 'risk_transition') {
+    icon = '⚠️'
+    color  = '#f59e0b'
+    bg     = 'rgba(245,158,11,0.10)'
+    border = `${color}40`
+    headline = `Risk Mode: ${data.from} → ${data.to}`
+    detail = data.reason || 'Risk state changed'
+  } else {
+    return null
+  }
+  return (
+    <div style={{
+      background: bg, border: `1px solid ${border}`, borderRadius: 10,
+      padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12,
+    }}>
+      <span style={{ fontSize: 18, lineHeight: 1 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color, letterSpacing: '0.02em' }}>{headline}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-sub)', marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>{detail}</div>
+      </div>
+      <span style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.08em' }}>LIVE</span>
+    </div>
+  )
+}
+
 function SessionBadge({ session }) {
   if (!session) return null
   const colors = {
@@ -318,6 +360,10 @@ export default function Dashboard() {
   const [market, setMarket]       = useState({ latest:{}, history:{} })
   const [session, setSession]     = useState(null)
   const [railSymbols, setRailSymbols] = useState([])
+  // Most recent engine-pushed event (trade or risk_transition). Renders an
+  // ephemeral flash strip that auto-clears after 6s, so the user gets
+  // immediate confirmation instead of waiting for the next 5s tick.
+  const [liveEvent, setLiveEvent] = useState(null)
 
   useEffect(() => {
     api.get('/market').then(r => setMarket(r.data))
@@ -354,10 +400,27 @@ export default function Dashboard() {
       if (d.type === 'tick') {
         setLastTick(d)
         if (d.session) setSession(d.session)
+      } else if (d.type === 'trade') {
+        // Engine just fired a fill. Refresh trades + equity so the recent-
+        // trades list and equity card update immediately rather than after
+        // the next 5s tick. Flash the event strip with a one-line summary.
+        api.get('/trades?limit=100').then(r => setTrades(r.data.trades))
+        api.get('/equity').then(r => setEquity(r.data))
+        setLiveEvent({ kind: 'trade', data: d })
+      } else if (d.type === 'risk_transition') {
+        api.get('/equity').then(r => setEquity(r.data))
+        setLiveEvent({ kind: 'risk_transition', data: d })
       }
     }
     return () => socket.close()
   }, [])
+
+  // Auto-clear the live-event flash strip after 6s.
+  useEffect(() => {
+    if (!liveEvent) return
+    const t = setTimeout(() => setLiveEvent(null), 6000)
+    return () => clearTimeout(t)
+  }, [liveEvent])
 
   const shadowEquity = lastTick?.shadow_equity ?? equity?.shadow_equity ?? 0
   const pnlUsd       = lastTick?.pnl_usd ?? equity?.pnl_usd ?? 0
@@ -376,6 +439,8 @@ export default function Dashboard() {
       </div>
 
       <RiskModeBanner equity={equity} lastTick={lastTick} />
+
+      <LiveEventStrip event={liveEvent} />
 
       <MarketRail market={market} symbols={railSymbols} />
 

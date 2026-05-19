@@ -552,25 +552,96 @@ async def get_watchlist(user: str = Depends(get_current_user)):
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):
-        self.active: list[WebSocket] = []
+        # Each entry is (ws, user) so broadcasts can be scoped by role.
+        # pending_events lives only in the real DB; demo sockets must not
+        # see real-trade fills bleeding through manager.broadcast().
+        self.active: list[tuple[WebSocket, str]] = []
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket, user: str):
         await ws.accept()
-        self.active.append(ws)
+        self.active.append((ws, user))
 
     def disconnect(self, ws: WebSocket):
-        if ws in self.active:
-            self.active.remove(ws)
+        self.active = [(w, u) for (w, u) in self.active if w is not ws]
 
-    async def broadcast(self, data: dict):
+    async def broadcast(self, data: dict, *, only_user: Optional[str] = None):
+        """Send `data` to all connected sockets, or just those for `only_user`."""
         msg = json.dumps(data)
-        for ws in list(self.active):
+        dead: list[WebSocket] = []
+        for ws, user in list(self.active):
+            if only_user is not None and user != only_user:
+                continue
             try:
                 await ws.send_text(msg)
             except Exception:
-                self.active.remove(ws)
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
 
 manager = ConnectionManager()
+
+
+async def _drain_pending_events():
+    """
+    Background task: drains the engine's pending_events queue and broadcasts
+    each row over /ws via manager.broadcast(). The engine writes events
+    (trade fills, risk-mode transitions) inside database.log_trade() and
+    database.update_risk_state(); this task ships them to connected admin
+    clients with ~1s latency vs. waiting up to 5s for the next tick.
+
+    Failures are swallowed and retried on the next iteration — a transient
+    DB lock or JSON glitch must not take the API down. Old rows are pruned
+    after 7 days so the table doesn't grow unbounded.
+    """
+    import logging
+    log = logging.getLogger("sulla.api.drain")
+    prune_counter = 0
+    while True:
+        try:
+            conn = sqlite3.connect(REAL_DB)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, timestamp, event_type, payload FROM pending_events "
+                "WHERE broadcast_at IS NULL ORDER BY id LIMIT 50"
+            ).fetchall()
+            for r in rows:
+                try:
+                    payload = json.loads(r["payload"])
+                except Exception:
+                    payload = {}
+                msg = {
+                    "type":      r["event_type"],
+                    "timestamp": r["timestamp"],
+                    **payload,
+                }
+                # pending_events lives in REAL_DB only — scope the broadcast
+                # to admin sockets so demo dashboards keep showing demo data.
+                await manager.broadcast(msg, only_user=API_USERNAME)
+                conn.execute(
+                    "UPDATE pending_events SET broadcast_at = ? WHERE id = ?",
+                    (datetime.now(timezone.utc).isoformat(), r["id"]),
+                )
+            conn.commit()
+
+            prune_counter += 1
+            if prune_counter >= 60:
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+                conn.execute(
+                    "DELETE FROM pending_events WHERE broadcast_at IS NOT NULL AND broadcast_at < ?",
+                    (cutoff,),
+                )
+                conn.commit()
+                prune_counter = 0
+
+            conn.close()
+        except Exception as e:
+            log.warning(f"pending_events drain iteration failed: {e}")
+        await asyncio.sleep(1.0)
+
+
+@app.on_event("startup")
+async def _start_event_drain():
+    asyncio.create_task(_drain_pending_events())
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket, token: str = ""):
@@ -587,7 +658,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = ""):
         await ws.close(code=1008)
         return
 
-    await manager.connect(ws)
+    await manager.connect(ws, user)
     try:
         while True:
             conn = get_db(user)
