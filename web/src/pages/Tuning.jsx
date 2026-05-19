@@ -20,8 +20,10 @@ const STATUS_TIPS = {
   PENDING:        "Awaiting validation start — proposal logged but the shadow window has not yet begun accumulating closed trades.",
 }
 
+const MIN_TRADES = 10  // per (symbol, paradigm); mirrors tuning.min_trades_to_tune
+
 export default function Tuning() {
-  const [data, setData] = useState({ log: [], snapshots: [] })
+  const [data, setData] = useState({ log: [], snapshots: [], progress: [] })
 
   useEffect(() => {
     api.get('/tuning').then(r => setData(r.data))
@@ -78,6 +80,49 @@ export default function Tuning() {
         </div>
       )}
 
+      {/* Progress to threshold — per (symbol, paradigm) */}
+      <div className="rounded-xl p-5" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <h2 className="text-sm font-medium" style={{ color:'var(--text-sub)' }}>Progress to Tuning Threshold</h2>
+          <HelpTip text={`Each row shows closed shadow trades for a (symbol × paradigm) combination. The tuner only runs on paradigms with at least ${MIN_TRADES} closes. Below threshold are accumulating; at threshold or above are evaluated each cycle.`} />
+        </div>
+        {(!data.progress || data.progress.length === 0) ? (
+          <div className="p-6 text-center text-sm" style={{ color:'var(--text-dim)' }}>
+            No closed shadow trades yet
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom:'1px solid var(--border-row)' }}>
+                {['Pair','Paradigm','Closes','Progress'].map(h => (
+                  <th key={h} className="text-left px-3 py-2 text-xs uppercase tracking-wider" style={{ color:'var(--text-muted)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.progress.map((p, i) => {
+                const pct = Math.min(100, (p.closed_count / MIN_TRADES) * 100)
+                const eligible = p.closed_count >= MIN_TRADES
+                return (
+                  <tr key={`${p.symbol}-${p.strategy}-${i}`} style={{ borderBottom:'1px solid var(--border-row)' }}>
+                    <td className="px-3 py-2.5 font-medium" style={{ color:'var(--text-primary)' }}>{p.symbol}</td>
+                    <td className="px-3 py-2.5 text-xs" style={{ color:'var(--text-sub)' }}>{p.strategy}</td>
+                    <td className="px-3 py-2.5" style={{ color: eligible ? BLUE : 'var(--text-sub)', fontWeight: eligible ? 600 : 400 }}>
+                      {p.closed_count}/{MIN_TRADES}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background:'var(--bg-elevated)' }}>
+                        <div className="h-full rounded-full" style={{ width:`${pct}%`, background: eligible ? BLUE : '#f59e0b' }} />
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       {/* Tuning log */}
       <div className="rounded-xl overflow-hidden" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
         <div className="px-5 py-3" style={{ borderBottom:'1px solid var(--border-row)' }}>
@@ -85,7 +130,7 @@ export default function Tuning() {
         </div>
         {data.log.length === 0 ? (
           <div className="p-8 text-center" style={{ color:'var(--text-dim)' }}>
-            No tuning events yet — engine needs {10}+ closed shadow trades per symbol to begin
+            No tuning events yet — engine needs {10}+ closed shadow trades per (symbol × paradigm) to begin
           </div>
         ) : (
           <table className="w-full text-sm">

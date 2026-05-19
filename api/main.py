@@ -505,9 +505,17 @@ async def get_tuning(user: str = Depends(get_current_user)):
         snapshots = conn.execute(
             "SELECT * FROM param_snapshots ORDER BY id DESC LIMIT 20"
         ).fetchall()
+        # Per (symbol × paradigm) closed-trade counts for the dashboard progress panel.
+        progress = conn.execute(
+            "SELECT symbol, strategy, COUNT(*) AS closed_count "
+            "FROM trades WHERE action IN ('SHADOW SELL', 'SELL') "
+            "GROUP BY symbol, strategy "
+            "ORDER BY closed_count DESC, symbol, strategy"
+        ).fetchall()
         return {
             "log": [_row(r) for r in log],
             "snapshots": [_row(r) for r in snapshots],
+            "progress": [_row(r) for r in progress],
         }
     finally:
         conn.close()
