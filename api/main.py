@@ -128,13 +128,28 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # 8 hours
 pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-API_USERNAME      = os.getenv("API_USERNAME", "admin")
+# Usernames normalized at load — login + JWT sub are lowercased so all
+# downstream user == API_USERNAME / DEMO_USERNAME comparisons are case-insensitive.
+API_USERNAME      = os.getenv("API_USERNAME", "admin").strip().lower()
 API_PASSWORD_HASH = os.getenv("API_PASSWORD_HASH", "")
-DEMO_USERNAME     = os.getenv("DEMO_USERNAME", "demo")
+DEMO_USERNAME     = os.getenv("DEMO_USERNAME", "demo").strip().lower()
 DEMO_PASSWORD_HASH = os.getenv("DEMO_PASSWORD_HASH", "")
 
 def get_db(user: str = "admin") -> sqlite3.Connection:
-    path = DEMO_DB if user == DEMO_USERNAME else REAL_DB
+    """Return a DB connection scoped to user role + bot mode.
+
+    Admin always sees the live runtime DB. The demo user sees:
+      - live DB while shadow_mode is on (paper trading — safe to share)
+      - static demo_data.db once shadow_mode is off (real money → privacy)
+    """
+    if user == DEMO_USERNAME:
+        try:
+            shadow_on = config_manager.load_engine_config().get('oanda', {}).get('shadow_mode', False)
+        except Exception:
+            shadow_on = False  # fail closed — better to show stale demo than risk leaking live data
+        path = REAL_DB if shadow_on else DEMO_DB
+    else:
+        path = REAL_DB
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
@@ -236,11 +251,13 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     ip = request.client.host
     _check_rate_limit(ip)
 
+    # Case-insensitive username — preserve original for the audit log
+    submitted = (form_data.username or "").strip().lower()
     authenticated = False
-    if form_data.username == API_USERNAME:
+    if submitted == API_USERNAME:
         if API_PASSWORD_HASH and verify_password(form_data.password, API_PASSWORD_HASH):
             authenticated = True
-    elif form_data.username == DEMO_USERNAME:
+    elif submitted == DEMO_USERNAME:
         if DEMO_PASSWORD_HASH and verify_password(form_data.password, DEMO_PASSWORD_HASH):
             authenticated = True
 
@@ -255,7 +272,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     _log_attempt(form_data.username, ip, "SUCCESS")
 
     token = create_access_token(
-        data={"sub": form_data.username},
+        data={"sub": submitted},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     return {"access_token": token, "token_type": "bearer"}
