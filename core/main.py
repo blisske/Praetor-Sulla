@@ -568,10 +568,11 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
         f"[SCORE:{consensus_score}/{min_consensus} | {' | '.join(sup_reasons)}] "
         f"{verdict_body}"
     )
-    database.log_trade(sym, 'SHADOW BUY', d['price'], units, paradigm, enriched_verdict)
+    database.log_trade(sym, 'SHADOW BUY', d['price'], units, paradigm, enriched_verdict,
+                       position_size_usd=notional)
     database.record_open_position(
         symbol=sym, entry_price=d['price'], strategy=paradigm,
-        entry_atr=d['atr'], shares=units,
+        entry_atr=d['atr'], shares=units, position_size_usd=notional,
     )
     database.update_shadow_stop(sym, stop_price)
     database.adjust_shadow_cash(-notional)
@@ -966,9 +967,11 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     database.log_trade(sym, 'SHADOW BUY', entry, units, 'MANUAL OVERRIDE',
-                       'Manual user /buy (shadow mode)')
+                       'Manual user /buy (shadow mode)',
+                       position_size_usd=notional)
     database.record_open_position(sym, entry, 'MANUAL OVERRIDE',
-                                  entry_atr=d['atr'], shares=units)
+                                  entry_atr=d['atr'], shares=units,
+                                  position_size_usd=notional)
     database.update_shadow_stop(sym, stop_price)
     database.adjust_shadow_cash(-notional)
     await update.message.reply_html(

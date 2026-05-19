@@ -325,7 +325,7 @@ def log_market_state(symbol, price, adx, regime, trend, rsi, volume=None, avg_vo
 
 def record_open_position(symbol, entry_price, strategy, entry_atr=0.0, shares=0.0,
                          leg_count=1, avg_entry_price=None, last_leg_price=None,
-                         last_leg_atr=None):
+                         last_leg_atr=None, position_size_usd=0.0):
     """
     Records which paradigm opened a position so the exit engine
     never has to guess mid-trade. Also stores entry ATR, share count for
@@ -347,10 +347,12 @@ def record_open_position(symbol, entry_price, strategy, entry_atr=0.0, shares=0.
         c.execute('''
             INSERT OR REPLACE INTO open_positions
             (symbol, entry_price, strategy, entry_atr, current_stop, shares,
-             leg_count, avg_entry_price, last_leg_price, last_leg_atr)
-            VALUES (?, ?, ?, ?, 0.0, ?, ?, ?, ?, ?)
+             leg_count, avg_entry_price, last_leg_price, last_leg_atr,
+             position_size_usd, original_position_size_usd)
+            VALUES (?, ?, ?, ?, 0.0, ?, ?, ?, ?, ?, ?, ?)
         ''', (symbol, entry_price, strategy, entry_atr, shares,
-              leg_count, avg_entry_price, last_leg_price, last_leg_atr))
+              leg_count, avg_entry_price, last_leg_price, last_leg_atr,
+              position_size_usd, position_size_usd))
         conn.commit()
         conn.close()
     except Exception as e:
