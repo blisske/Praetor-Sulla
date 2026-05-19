@@ -707,9 +707,10 @@ def update_tuning_status(log_id, status):
         logger.error(f"DATABASE ERROR: Failed to update tuning status for log_id {log_id}: {e}")
 
 
-def get_tuning_summary():
+def get_tuning_summary(limit=50):
     """
-    Returns a summary of all tuning activity for the /pnl command and dashboard.
+    Returns a summary of recent tuning activity for the /pnl command and dashboard.
+    `limit` matches Tiberius's signature for cross-bot parity.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -717,8 +718,8 @@ def get_tuning_summary():
         c.execute('''
             SELECT symbol, parameter, old_value, new_value,
                    metric_name, metric_value, status, timestamp
-            FROM tuning_log ORDER BY timestamp DESC LIMIT 50
-        ''')
+            FROM tuning_log ORDER BY timestamp DESC LIMIT ?
+        ''', (limit,))
         rows = c.fetchall()
         conn.close()
         return [
