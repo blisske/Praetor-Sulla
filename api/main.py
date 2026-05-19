@@ -433,6 +433,9 @@ async def get_equity(user: str = Depends(get_current_user)):
         drawdown_pct = max(0.0, (peak_equity - shadow_equity) / peak_equity * 100) if peak_equity > 0 else 0.0
         risk = _risk_state_snapshot(conn)
 
+        # Drawdown threshold echoes — same shape as Anton/Tiberius so the
+        # frontend can render the same drawdown banner everywhere.
+        risk_cfg = config.get("risk", {})
         return {
             "initial_capital":      round(initial, 2),
             "shadow_equity":        round(shadow_equity, 2),
@@ -444,6 +447,10 @@ async def get_equity(user: str = Depends(get_current_user)):
             "daily_halt":           risk["daily_halt"],
             "session_start_equity": risk["session_start_equity"],
             "shadow_cash":          risk["shadow_cash"],
+            "halt_pct":             float(risk_cfg.get("drawdown_halt_pct", 25.0)),
+            "derisk_pct":           float(risk_cfg.get("drawdown_derisk_pct", 15.0)),
+            "alert_pct":            float(risk_cfg.get("drawdown_alert_pct", 8.0)),
+            "recover_pct":          float(risk_cfg.get("drawdown_recovery_pct", 10.0)),
         }
     finally:
         conn.close()
