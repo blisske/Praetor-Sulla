@@ -71,14 +71,37 @@ def init_db():
         # Table 3: Open Positions
         c.execute('''
             CREATE TABLE IF NOT EXISTS open_positions (
-                symbol          TEXT PRIMARY KEY,
-                entry_price     REAL,
-                strategy        TEXT,
-                entry_atr       REAL DEFAULT 0.0,
-                current_stop    REAL DEFAULT 0.0,
-                entry_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                symbol                       TEXT PRIMARY KEY,
+                entry_price                  REAL,
+                strategy                     TEXT,
+                entry_atr                    REAL DEFAULT 0.0,
+                current_stop                 REAL DEFAULT 0.0,
+                entry_timestamp              DATETIME DEFAULT CURRENT_TIMESTAMP,
+                shares                       REAL DEFAULT 0.0,
+                leg_count                    INTEGER DEFAULT 1,
+                avg_entry_price              REAL DEFAULT 0.0,
+                last_leg_price               REAL DEFAULT 0.0,
+                last_leg_atr                 REAL DEFAULT 0.0,
+                position_size_usd            REAL DEFAULT 0.0,
+                original_position_size_usd   REAL DEFAULT 0.0,
+                partial_exits_taken          INTEGER DEFAULT 0
             )
         ''')
+        # Idempotent column adds for DBs predating later schema additions.
+        for col, decl in [
+            ('shares',                     'REAL DEFAULT 0.0'),
+            ('leg_count',                  'INTEGER DEFAULT 1'),
+            ('avg_entry_price',            'REAL DEFAULT 0.0'),
+            ('last_leg_price',             'REAL DEFAULT 0.0'),
+            ('last_leg_atr',               'REAL DEFAULT 0.0'),
+            ('position_size_usd',          'REAL DEFAULT 0.0'),
+            ('original_position_size_usd', 'REAL DEFAULT 0.0'),
+            ('partial_exits_taken',        'INTEGER DEFAULT 0'),
+        ]:
+            try:
+                c.execute(f"ALTER TABLE open_positions ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
         # Table 5: Tuning Log — records every parameter change proposal
         c.execute('''

@@ -69,6 +69,7 @@ _shutting_down = False
 _bot = None             # Telegram Bot instance; None until main_async wires it
 _kill_armed_at = 0.0    # Unix ts when /kill was sent; /confirm_kill must follow within 60s
 _last_reveille_day = None  # date(year, month, day) of the last reveille; one per day
+_daily_trend_cache: dict[str, dict] = {}   # symbol → {'trend': 'BULL'|'BEAR', 'date': iso}
 _veto_last_notified_at: dict[tuple[str, str], float] = {}  # (symbol, paradigm) → unix ts;
                                                             # used to debounce BEARISH VETO
                                                             # notifications when the same setup
@@ -175,6 +176,38 @@ def _should_notify_veto(symbol: str, paradigm: str) -> bool:
 
 def _mark_veto_notified(symbol: str, paradigm: str) -> None:
     _veto_last_notified_at[(symbol, paradigm)] = time.time()
+
+
+async def _get_daily_trend(symbol: str, config: dict) -> str:
+    """
+    Returns 'BULL' or 'BEAR' for the symbol's daily EMA9/EMA21 cross.
+    Cached once per ET date so daily fetches don't fire every cycle.
+    Returns 'BULL' (fail-open) on any data error — connectivity blips never
+    block trading. Honors the mtf_filter.enabled toggle: when disabled the
+    function returns 'BULL' immediately and skips the fetch entirely.
+
+    The MTF gate inside strategy.check_entry_signals reads
+    `indicators.get('daily_trend', 'BULL')`, so populating this field
+    before the entry check is what makes the toggle actually do anything.
+    """
+    if not config.get('mtf_filter', {}).get('enabled', True):
+        return 'BULL'
+    today_iso = datetime.datetime.now(pytz.timezone('America/New_York')).date().isoformat()
+    cached = _daily_trend_cache.get(symbol)
+    if cached and cached.get('date') == today_iso:
+        return cached['trend']
+    try:
+        d_daily = await market_data.fetch_indicators(symbol, config=config, timeframe='1d', limit=60)
+    except Exception as e:
+        logger.warning(f"[{symbol}] MTF daily fetch failed: {e} — failing open (BULL)")
+        return 'BULL'
+    if not d_daily:
+        logger.warning(f"[{symbol}] MTF daily fetch returned None — failing open (BULL)")
+        return 'BULL'
+    trend = d_daily.get('trend', 'BULL')
+    _daily_trend_cache[symbol] = {'trend': trend, 'date': today_iso}
+    logger.info(f"[{symbol}] MTF Daily: trend={trend} (cached through {today_iso})")
+    return trend
 
 
 async def _maybe_send_reveille() -> None:
@@ -316,11 +349,125 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
             )
 
 
+# ─── Pyramiding add ─────────────────────────────────────────────────────────
+async def _evaluate_pyramid_add(
+    sym: str, d: dict, config: dict, shadow_cash: float,
+    shadow_equity: float, py_cfg: dict,
+) -> None:
+    """
+    Adds a leg to an existing position when pyramiding conditions pass.
+    Only TREND FOLLOWING and VOLATILITY BREAKOUT positions pyramid —
+    Mean Reversion and Liquidity Sweep are counter-trend by design, and
+    adding to a winner there means doubling down against the entry thesis.
+
+    Trigger: price must have advanced by `trigger_atr_mult × last_leg_atr`
+    from the last leg's price AND the current setup must still match the
+    original paradigm. Leg sizing decays geometrically:
+        leg_units = base_units × (size_decay ^ existing_leg_count)
+    so leg 2 is half-size, leg 3 quarter-size, etc.
+
+    Skips silently when conditions aren't met. Logs at INFO when a leg
+    is added; the existing position's stop is preserved (this is the
+    operator's earned protection from the original entry).
+    """
+    pos = database.get_open_position(sym)
+    if not pos:
+        return
+
+    paradigm = pos.get('strategy', '')
+    if paradigm not in ('TREND FOLLOWING', 'VOLATILITY BREAKOUT'):
+        return
+
+    max_legs_cfg = py_cfg.get('max_legs', {})
+    if isinstance(max_legs_cfg, dict):
+        max_legs = max_legs_cfg.get(
+            'trend_following' if paradigm == 'TREND FOLLOWING' else 'volatility_breakout',
+            3 if paradigm == 'TREND FOLLOWING' else 2,
+        )
+    else:
+        max_legs = int(max_legs_cfg or 3)
+    leg_count = int(pos.get('leg_count') or 1)
+    if leg_count >= max_legs:
+        return
+
+    trigger_atr_mult = float(py_cfg.get('trigger_atr_mult', 1.0))
+    last_leg_price   = float(pos.get('last_leg_price') or pos.get('entry_price') or 0.0)
+    last_leg_atr     = float(pos.get('last_leg_atr')   or pos.get('entry_atr')   or 0.0)
+    if last_leg_price <= 0 or last_leg_atr <= 0:
+        return
+    if d['price'] < last_leg_price + (last_leg_atr * trigger_atr_mult):
+        return
+
+    d['symbol'] = sym
+    try:
+        is_setup, current_paradigm = strategy.check_entry_signals(d, config=config)
+    except Exception as e:
+        logger.warning(f"[{sym}] pyramid signal check raised: {e} — skipping leg add")
+        return
+    if not is_setup or current_paradigm != paradigm:
+        return
+
+    initial_stop_mult = config.get('ratchet', {}).get('initial_stop_mult', 2.0)
+    risk_cfg = config.get('risk', {})
+    base_units, _ = execution.calculate_position_units(
+        equity_usd=shadow_equity, atr=d['atr'], entry_price=d['price'],
+        symbol=sym, risk_config=risk_cfg, stop_mult_override=initial_stop_mult,
+    )
+    if base_units <= 0:
+        return
+    size_decay = float(py_cfg.get('leg_decay_factor', py_cfg.get('size_decay', 0.5)))
+    leg_units = int(base_units * (size_decay ** leg_count))
+    if leg_units <= 0:
+        logger.info(
+            f"[{sym}] pyramid leg #{leg_count+1} sized to 0 units after decay — skipping"
+        )
+        return
+
+    leg_notional = fx_math.position_notional_usd(sym, leg_units, d['price'])
+    if leg_notional > shadow_cash:
+        logger.info(
+            f"[{sym}] pyramid leg #{leg_count+1} needs ${leg_notional:,.2f} "
+            f"but shadow cash is ${shadow_cash:,.2f} — skipping"
+        )
+        return
+
+    added = database.add_pyramid_leg(
+        symbol=sym, leg_price=d['price'], leg_atr=d['atr'], leg_shares=leg_units,
+    )
+    if not added:
+        return
+
+    database.log_trade(
+        sym, 'SHADOW BUY', d['price'], leg_units, paradigm,
+        f"PYRAMID LEG #{leg_count+1}/{max_legs} · base={base_units} units · "
+        f"decay={size_decay}^{leg_count}",
+    )
+    database.adjust_shadow_cash(-leg_notional)
+    logger.info(
+        f"[{sym}] 🟢 PYRAMID LEG #{leg_count+1}/{max_legs} | {paradigm} · "
+        f"{leg_units:,} units @ {fx_math.fp(d['price'], sym)} | "
+        f"notional ${leg_notional:,.2f}"
+    )
+    icons = {"TREND FOLLOWING": "📈", "VOLATILITY BREAKOUT": "🚀"}
+    await _notify(
+        f"👻 {icons.get(paradigm, '🎯')} <b>PYRAMID LEG #{leg_count+1}/{max_legs}</b>\n"
+        f"Pair: {sym}\n"
+        f"Strategy: {paradigm}\n"
+        f"Units: {leg_units:,} · Entry: ${fx_math.fp(d['price'], sym)} · "
+        f"Notional: ${leg_notional:,.2f}"
+    )
+
+
 # ─── Entry consensus + shadow buy ───────────────────────────────────────────
 async def _evaluate_entry(sym: str, d: dict, config: dict,
                           open_symbols: set[str], shadow_cash: float,
                           shadow_equity: float) -> None:
+    # If a position already exists for this symbol, we either pyramid into it
+    # (if pyramiding is enabled and the trigger conditions pass) or skip.
     if sym in open_symbols:
+        py_cfg = config.get('pyramiding') or {}
+        if py_cfg.get('enabled', False):
+            await _evaluate_pyramid_add(sym, d, config, shadow_cash, shadow_equity, py_cfg)
         return
 
     # ── Macro-event blackout (Phase 4) ───────────────────────────────────
@@ -514,6 +661,15 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
             return
         if len(open_symbols) >= max_open:
             break
+        # Populate daily_trend so the MTF gate in check_entry_signals can
+        # actually fire. Without this, the gate reads the 'BULL' default
+        # and effectively never blocks. Cached per-day to avoid hammering
+        # Oanda's daily endpoint every cycle.
+        try:
+            d['daily_trend'] = await _get_daily_trend(sym, config)
+        except Exception as e:
+            logger.warning(f"[{sym}] daily_trend lookup failed: {e} — defaulting to BULL")
+            d['daily_trend'] = 'BULL'
         try:
             await _evaluate_entry(sym, d, config, open_symbols, shadow_cash, shadow_equity)
         except Exception as e:
