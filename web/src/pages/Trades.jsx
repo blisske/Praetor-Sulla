@@ -35,7 +35,7 @@ export default function Trades() {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom:'1px solid var(--border-row)' }}>
-              {['Time', 'Symbol', 'Action', 'Price', 'Shares', 'Strategy', 'Result'].map(h => (
+              {['Time', 'Pair', 'Action', 'Price', 'Units', 'Strategy', 'Result'].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider" style={{ color:'var(--text-muted)' }}>{h}</th>
               ))}
             </tr>
