@@ -335,6 +335,15 @@ const Section5 = () => (
       math handles the 0.01-pip JPY-pair convention so stops on USD/JPY are
       placed at the correct precision (3 decimals, not 5).
     </p>
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>London/NY overlap defense.</strong> The FX
+      session's highest-volume window is 08:00–12:00&nbsp;ET (London open through New York open).
+      Random ATR-distance whip-saws are most likely here, so during this window the trailing-stop
+      multiplier widens by an extra <Code>0.3</Code> ATR to avoid being shaken out on normal
+      overlap-period noise. Configurable via <Code>ratchet.power_hour_defense</Code> in Config.yaml
+      (the inherited name from Anton's NYSE Power Hour pattern). Outside the window, base
+      multiplier applies.
+    </p>
 
     <div className="rounded-lg p-4 my-4" style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
       <div className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>Tiered drawdown response</div>
@@ -472,10 +481,13 @@ const Section7 = () => (
       </div>
       <div>
         <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Tuning page</div>
-        <p>Two tables. <em>Validation Queue</em> shows proposals currently in
+        <p>Three panels. <em>Validation Queue</em> shows proposals currently in
           SHADOW_PENDING — which parameter, old value, new value, status.
-          <em> Audit Log</em> shows every promotion and rejection with full
-          before/after, the metric delta, and the validation window count.</p>
+          <em> Progress to Tuning Threshold</em> shows every (pair × paradigm)
+          combination's closed-trade count vs the 10-trade per-paradigm floor —
+          amber bars are accumulating, blue = eligible. <em> Audit Log</em>
+          shows every promotion and rejection with full before/after, the
+          metric delta, and the validation window count.</p>
       </div>
       <div>
         <div className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Macro blackout banner</div>
@@ -585,6 +597,8 @@ const Section9 = () => (
         <TelegramRow cmd="/pnl" what="Shadow performance — per-pair win rate, profit factor, average return, dollar P&L." />
         <TelegramRow cmd="/calendar" what="Upcoming high-impact macro events for the watchlist (default 48h). Optional hours arg: /calendar 168." />
         <TelegramRow cmd="/buy PAIR USD" what="Manual buy with auto stop-loss. Accepts EUR/USD or EURUSD or eur_usd; case-insensitive." />
+        <TelegramRow cmd="/protect" what="Scans open positions for naked stops and writes ATR×initial_stop_mult protection into the DB. Live-mode Oanda stop orders are a future wire-up." />
+        <TelegramRow cmd="/apply" what="Authorize a pending stop-loss ratchet (live-mode operator-confirmation flow). In shadow mode the engine auto-ratchets, so this returns 'no pending ratchets' until live Oanda execution is wired." />
         <TelegramRow cmd="/kill" what="Arms the emergency liquidation. Requires /confirm_kill within 60s." />
         <TelegramRow cmd="/confirm_kill" what="Closes ALL open shadow positions at market. Two-step on purpose." />
         <TelegramRow cmd="/resume" what="Resumes trading after a drawdown halt. Re-checks DD first." />
