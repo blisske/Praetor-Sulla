@@ -1,9 +1,122 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-19 (Tier 2 drift audit closeout + automated drift detector)
+> Last updated: 2026-05-19 (4-phase trading-logic audit — 8 real bugs across the swarm, all fixed)
 
 ---
+
+## 2026-05-19 — 4-phase trading-logic audit
+
+Confidence-restoration audit across strategy, sizing, tuning, and risk math
+in all three Praetor bots. Eight real bugs surfaced; all fixed.
+
+### Phase 1 (trade traces) — Sulla GBP/USD findings
+
+Traced only open position: trade id 1 SHADOW BUY 894 units GBP/USD @
+1.34182 (2026-05-18 16:02 UTC), VOLATILITY BREAKOUT, still open at
+~1.34003 (−13 pips unrealized). Verified VB trigger conditions
+(TRENDING, ADX 37.4, RSI 68.0 > vb_rsi=55, BBW squeeze trusted by
+construction). Consensus 4/3 — full house. Position sizing math
+correct: `equity × 12% / price` capped at 894.30 → floored to 894
+units, notional $1,199.59. Initial stop placement correct at
+`entry − ATR × 2.0 = 1.337473`; current stop 1.3383966 reflects
+~9 pips of ratchet movement.
+
+**One real bug found and fixed:**
+
+- **`HOLD_AND_TIGHTEN` signal was computed but discarded.** When a
+  TF/VB position's regime flips to RANGING (which GBP/USD did —
+  ADX dropped from 37 to 14), the design intent is to tighten the
+  stop to ~1× ATR with a BE floor. Tiberius honored this; Sulla's
+  exit cycle only branched on `TAKE_PROFIT`, falling through to
+  the normal ratchet. **Fix:** added a `HOLD_AND_TIGHTEN` handler
+  at `core/main.py:338-357` between TAKE_PROFIT and the trailing
+  ratchet, with `continue` to preempt the wider normal ratchet.
+  Verified the code path is hit each cycle but correctly refuses
+  to fire while the position is underwater (`tight_sl < price`
+  guard prevents tightening into a phantom-loss territory). Will
+  visibly fire the first time a TF/VB position is above-water
+  when its regime flips.
+
+### Phase 2 (per-paradigm code audit) — TREND FOLLOWING cross-bot
+
+TF trigger byte-identical across bots. Found four divergences in
+supporting infrastructure; two fixed in Sulla, one deferred, one
+ported:
+
+- **Volume threshold was hardcoded `0.8`** at `core/strategy.py:173`.
+  Tiberius reads from `consensus.volume_participation_pct`. Fixed
+  Sulla to use the same config path with `0.80` default.
+- **VB RSI direction was paradigm-agnostic.** Sulla scored
+  "RSI rising (any +delta)" as +1 for VB the same as for TF/MR/LS.
+  Tiberius requires `delta ≥ 2` ("SURGING"). Fixed Sulla's
+  `check_supporting_signals` to branch on
+  `strategy_type == "VOLATILITY BREAKOUT"` for the surging gate.
+- **MTF slope filter** (`block_strong_downtrend`): deferred —
+  crypto-tuned threshold doesn't transfer to FX without re-tuning.
+- **Partial profit-taking** — ported from Tiberius (default OFF):
+  - `database.py`: extended `get_open_position` / `get_all_open_positions`
+    to return `partial_exits_taken` + `position_size_usd`; added
+    `mark_partial_exit(symbol, remaining_shares, remaining_size_usd, new_stop)`
+  - `strategy.py`: `check_exit_signals(..., partial_exit_taken=False)`
+    signature; returns `PARTIAL_TAKE_PROFIT` action on first mid-BB
+    touch when PPT enabled and not already partial'd. Upper-BB
+    exit unconditional.
+  - `main.py`: shadow exit cycle reads partial flag, handles
+    `PARTIAL_TAKE_PROFIT` by `math.floor(units × pct + 1e-9)`,
+    short-circuits to normal TP if degenerate. Logs
+    `SHADOW PARTIAL SELL` with sliced `position_size_usd` so the
+    tuner doesn't double-count. Also added `import math` (was
+    missing — only needed once partial-PT code landed).
+  - `Config.yaml`: `strategy.partial_profit_taking` block
+    (`enabled: false`, `partial_exit_pct: 50.0`,
+    `move_stop_to_breakeven: true`).
+
+### Phase 3 — tuner safety + bounds
+
+All eight safety surfaces verified clean and consistent across bots.
+Sulla tuner: no bugs. `tuning_log` empty (tuner has never proposed
+a change yet). One Tiberius-specific bug fixed there (see Tiberius
+WORKING_STATE.md).
+
+### Phase 4 — math spot-checks
+
+**One critical safety bug found and fixed in Sulla:**
+
+- **Sulla had no working drawdown safety net.** Both `equity_peak`
+  and `risk_state` tables were empty — nothing in the cycle was
+  updating them. The `/resume` command and the `/report` cosmetic
+  existed, but the *transitions* into ALERT/DERISK/HALT had no code
+  path. With `peak_equity = 0`, `drawdown_pct` resolved to `0%`
+  regardless of actual loss, so HALT could never have triggered.
+  Sulla was running with **no drawdown safety net**.
+- **Fix:** ported Anton's tiered drawdown state machine verbatim
+  into `_run_cycle` at `core/main.py:710-765`. Same NORMAL → ALERT →
+  DERISK → HALT cascade with `recovery_pct` hysteresis. HALT
+  short-circuits new entries (open positions continue to ratchet
+  through the shadow exit engine). DERISK halves effective
+  `shadow_equity` passed to `calculate_position_units` —
+  mathematically equivalent to halving both `risk_per_trade_pct`
+  and `position_size_max_pct` (both scale linearly with equity).
+- **Verified:** first cycle initialized `equity_peak = $9997.90`;
+  `risk_state` will populate on first transition (NORMAL is default,
+  so no write needed yet).
+
+Other math surfaces (profit-factor sentinel, win-rate handling,
+partial-sell exclusion in tuner queries) all verified correct on
+Sulla. No changes needed there.
+
+### Stylistic divergences flagged but not fixed
+- Correlation multiplier: Sulla has none yet (Phase 1 scaffold area,
+  scheduled for future phase). When implemented, decide between
+  Anton's lookup curve or Tiberius's linear formula — currently
+  both produce identical outcomes at defaults.
+
+### Soak plan
+Leave the current Sulla configuration alone for a week before
+flipping `strategy.partial_profit_taking.enabled: true`. Goal:
+establish a clean post-audit baseline with the new drawdown
+state machine actually running for a full FX week.
 
 ## 2026-05-19 — Tier 2 drift audit closeout
 

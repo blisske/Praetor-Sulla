@@ -170,7 +170,7 @@ def check_supporting_signals(indicators, strategy_type, config=None):
     volume     = indicators.get('volume', 0)
     avg_volume = indicators.get('avg_volume', 1)
     vol_ratio  = (volume / avg_volume) if avg_volume > 0 else 0
-    vol_threshold = 0.8
+    vol_threshold = (config or {}).get('consensus', {}).get('volume_participation_pct', 0.80)
 
     if vol_ratio >= vol_threshold:
         score += 1
@@ -179,15 +179,24 @@ def check_supporting_signals(indicators, strategy_type, config=None):
         reasons.append(f"VOL WEAK ({vol_ratio:.1f}x avg, need {vol_threshold}x)")
 
     # --- SIGNAL 2: RSI Momentum Direction ---
-    # RSI must be rising over the last 2 candles — confirms selling exhaustion.
+    # Paradigm-aware: TF/MR/LS need RSI rising (exhaustion reversing). VB needs
+    # RSI *surging* (delta ≥ 2) — a momentum breakout demands more than drift.
     rsi       = indicators.get('rsi', 50)
     rsi_prev2 = indicators.get('rsi_prev2', rsi)
 
-    if rsi > rsi_prev2:
-        score += 1
-        reasons.append(f"RSI RISING ({rsi_prev2:.1f}→{rsi:.1f})")
+    if strategy_type == "VOLATILITY BREAKOUT":
+        rsi_delta = rsi - rsi_prev2
+        if rsi_delta >= 2:
+            score += 1
+            reasons.append(f"RSI SURGING (+{rsi_delta:.1f})")
+        else:
+            reasons.append(f"RSI MOMENTUM WEAK (delta {rsi_delta:+.1f})")
     else:
-        reasons.append(f"RSI FALLING ({rsi_prev2:.1f}→{rsi:.1f})")
+        if rsi > rsi_prev2:
+            score += 1
+            reasons.append(f"RSI RISING ({rsi_prev2:.1f}→{rsi:.1f})")
+        else:
+            reasons.append(f"RSI FALLING ({rsi_prev2:.1f}→{rsi:.1f})")
 
     # --- SIGNAL 3: ADX Regime Conviction ---
     # TRENDING: ADX must be above threshold AND rising (strengthening trend).
@@ -214,7 +223,8 @@ def check_supporting_signals(indicators, strategy_type, config=None):
     return score, reasons
 
 
-def check_exit_signals(indicators, strategy_type, current_stop_price, entry_price=None, config=None):
+def check_exit_signals(indicators, strategy_type, current_stop_price,
+                       entry_price=None, config=None, partial_exit_taken=False):
     """
     Evaluates open positions to determine if it is time to take profit or
     ratchet up our trailing stop-loss.
@@ -237,17 +247,34 @@ def check_exit_signals(indicators, strategy_type, current_stop_price, entry_pric
         cost_basis = entry_price if entry_price else indicators['bb_lower']
         real_yield = ((price - cost_basis) / cost_basis) * 100
 
-        if price >= indicators['bb_middle'] and real_yield > 2.0:
-            return {
-                'action': 'TAKE_PROFIT',
-                'reason': f'Mid BB target hit. Real yield: {real_yield:.1f}%'
-            }
-        elif price >= indicators['bb_upper']:
+        # Partial profit-taking config — first mid-BB touch can trigger a partial
+        # exit (default 50%) while the remainder trails to upper-BB.
+        ppt_cfg = (config or {}).get('strategy', {}).get('partial_profit_taking', {})
+        ppt_enabled = ppt_cfg.get('enabled', False)
+        partial_pct = ppt_cfg.get('partial_exit_pct', 50.0)
+
+        # Upper-BB hit always exits whatever remains (full or post-partial slice)
+        if price >= indicators['bb_upper']:
             return {
                 'action': 'TAKE_PROFIT',
                 'reason': f'Upper BB resistance hit. Real yield: {real_yield:.1f}%'
             }
-        elif price >= indicators['bb_middle'] and real_yield <= 0:
+
+        if price >= indicators['bb_middle'] and real_yield > 2.0:
+            if ppt_enabled and not partial_exit_taken:
+                return {
+                    'action': 'PARTIAL_TAKE_PROFIT',
+                    'sell_pct': partial_pct,
+                    'reason': f'Partial TP at mid BB ({partial_pct:.0f}%). Yield: {real_yield:.1f}%'
+                }
+            elif not ppt_enabled:
+                return {
+                    'action': 'TAKE_PROFIT',
+                    'reason': f'Mid BB target hit. Real yield: {real_yield:.1f}%'
+                }
+            # else: partial already taken, hold remainder for upper BB or stop
+
+        if price >= indicators['bb_middle'] and real_yield <= 0:
             return {
                 'action': 'HOLD',
                 'reason': f'Mid BB reached but position underwater ({real_yield:.1f}%). Holding.'

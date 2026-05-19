@@ -375,7 +375,8 @@ def get_open_position(symbol):
         c = conn.cursor()
         c.execute(
             'SELECT entry_price, strategy, entry_atr, current_stop, shares, '
-            'leg_count, avg_entry_price, last_leg_price, last_leg_atr '
+            'leg_count, avg_entry_price, last_leg_price, last_leg_atr, '
+            'position_size_usd, partial_exits_taken '
             'FROM open_positions WHERE symbol = ?',
             (symbol,)
         )
@@ -385,15 +386,17 @@ def get_open_position(symbol):
             entry_price = row[0]
             entry_atr   = row[2] or 0.0
             return {
-                'entry_price':     entry_price,
-                'strategy':        row[1],
-                'entry_atr':       entry_atr,
-                'current_stop':    row[3] or 0.0,
-                'shares':          row[4] or 0.0,
-                'leg_count':       row[5] or 1,
-                'avg_entry_price': row[6] if row[6] is not None else entry_price,
-                'last_leg_price':  row[7] if row[7] is not None else entry_price,
-                'last_leg_atr':    row[8] if row[8] is not None else entry_atr,
+                'entry_price':         entry_price,
+                'strategy':            row[1],
+                'entry_atr':           entry_atr,
+                'current_stop':        row[3] or 0.0,
+                'shares':              row[4] or 0.0,
+                'leg_count':           row[5] or 1,
+                'avg_entry_price':     row[6] if row[6] is not None else entry_price,
+                'last_leg_price':      row[7] if row[7] is not None else entry_price,
+                'last_leg_atr':        row[8] if row[8] is not None else entry_atr,
+                'position_size_usd':   row[9] or 0.0,
+                'partial_exits_taken': row[10] or 0,
             }
         return None
     except Exception as e:
@@ -467,6 +470,39 @@ def close_open_position(symbol):
         logger.error(f"DATABASE ERROR: Failed to close position record for {symbol}: {e}")
 
 
+def mark_partial_exit(symbol: str, remaining_shares: float,
+                      remaining_size_usd: float, new_stop: float | None = None):
+    """
+    Records that a partial profit-take has fired. Shrinks the position
+    (shares + size_usd), increments the partial counter, and optionally
+    moves the stop (typically to break-even).
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        if new_stop is not None:
+            c.execute('''
+                UPDATE open_positions
+                SET shares = ?,
+                    position_size_usd = ?,
+                    partial_exits_taken = partial_exits_taken + 1,
+                    current_stop = ?
+                WHERE symbol = ?
+            ''', (remaining_shares, remaining_size_usd, new_stop, symbol))
+        else:
+            c.execute('''
+                UPDATE open_positions
+                SET shares = ?,
+                    position_size_usd = ?,
+                    partial_exits_taken = partial_exits_taken + 1
+                WHERE symbol = ?
+            ''', (remaining_shares, remaining_size_usd, symbol))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to mark partial exit for {symbol}: {e}")
+
+
 def update_shadow_stop(symbol: str, new_stop: float):
     """
     Ratchets the current_stop value upward for a shadow position.
@@ -497,23 +533,26 @@ def get_all_open_positions() -> list:
         c = conn.cursor()
         c.execute(
             'SELECT symbol, entry_price, strategy, entry_atr, current_stop, shares, '
-            'leg_count, avg_entry_price, last_leg_price, last_leg_atr '
+            'leg_count, avg_entry_price, last_leg_price, last_leg_atr, '
+            'position_size_usd, partial_exits_taken '
             'FROM open_positions'
         )
         rows = c.fetchall()
         conn.close()
         return [
             {
-                'symbol':          r[0],
-                'entry_price':     r[1],
-                'strategy':        r[2],
-                'entry_atr':       r[3] or 0.0,
-                'current_stop':    r[4] or 0.0,
-                'shares':          r[5] or 0.0,
-                'leg_count':       r[6] or 1,
-                'avg_entry_price': r[7] if r[7] is not None else r[1],
-                'last_leg_price':  r[8] if r[8] is not None else r[1],
-                'last_leg_atr':    r[9] if r[9] is not None else (r[3] or 0.0),
+                'symbol':              r[0],
+                'entry_price':         r[1],
+                'strategy':            r[2],
+                'entry_atr':           r[3] or 0.0,
+                'current_stop':        r[4] or 0.0,
+                'shares':              r[5] or 0.0,
+                'leg_count':           r[6] or 1,
+                'avg_entry_price':     r[7] if r[7] is not None else r[1],
+                'last_leg_price':      r[8] if r[8] is not None else r[1],
+                'last_leg_atr':        r[9] if r[9] is not None else (r[3] or 0.0),
+                'position_size_usd':   r[10] or 0.0,
+                'partial_exits_taken': r[11] or 0,
             }
             for r in rows
         ]

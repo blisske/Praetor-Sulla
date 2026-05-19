@@ -25,6 +25,7 @@ No live Oanda order submission. Shadow contract enforced.
 import os
 import sys
 import time
+import math
 import signal
 import random
 import datetime
@@ -305,13 +306,52 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
             continue
 
         # ── B. Take profit / paradigm exit ─────────────────────────────────
+        partial_taken = bool(pos.get('partial_exits_taken', 0))
         try:
             exit_cmd = strategy.check_exit_signals(
                 d, entry_strat, cur_stop, entry_price=entry_price, config=config,
+                partial_exit_taken=partial_taken,
             )
         except Exception as e:
             logger.error(f"[{sym}] check_exit_signals failed: {e}")
             exit_cmd = {'action': 'HOLD'}
+
+        # Partial profit-take: sell `sell_pct` (default 50%), trail the rest.
+        # If unit math floors to 0 or to the full position, the partial is skipped
+        # and full TAKE_PROFIT fires on the next eligible cycle.
+        if exit_cmd.get('action') == 'PARTIAL_TAKE_PROFIT':
+            sell_pct        = exit_cmd.get('sell_pct', 50.0) / 100.0
+            units_to_sell   = math.floor(units * sell_pct + 1e-9)
+            if units_to_sell < 1 or units_to_sell >= units:
+                logger.info(f"[{sym}] PARTIAL TP skipped: {units} × {sell_pct:.0%} → {units_to_sell} (degenerate)")
+            else:
+                remaining_units = units - units_to_sell
+                pnl_pct = ((price - entry_price) / entry_price * 100) if entry_price else 0.0
+                partial_pnl_usd = (fx_math.position_notional_usd(sym, units_to_sell, price)
+                                   - fx_math.position_notional_usd(sym, units_to_sell, entry_price))
+                remaining_size_usd = fx_math.position_notional_usd(sym, remaining_units, entry_price)
+                ppt_cfg = config.get('strategy', {}).get('partial_profit_taking', {})
+                new_stop = entry_price if ppt_cfg.get('move_stop_to_breakeven', True) else None
+
+                database.log_trade(
+                    sym, 'SHADOW PARTIAL SELL', price, round(partial_pnl_usd, 2),
+                    entry_strat, f'PARTIAL TP: {pnl_pct:.2f}% on {sell_pct*100:.0f}%',
+                    position_size_usd=fx_math.position_notional_usd(sym, units_to_sell, entry_price),
+                )
+                database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units_to_sell, price))
+                database.mark_partial_exit(sym, remaining_units, remaining_size_usd, new_stop=new_stop)
+                logger.info(
+                    f"[{sym}] 💵 SHADOW PARTIAL TP | {entry_strat} · sold {units_to_sell:,} units "
+                    f"@ +{pnl_pct:.2f}% (${partial_pnl_usd:+.2f}) | {remaining_units:,} remain"
+                )
+                await _notify(
+                    f"💵 <b>SHADOW PARTIAL TP</b> {sym}\n"
+                    f"🟢 {entry_strat} · sold {units_to_sell:,} units @ +{pnl_pct:.2f}% "
+                    f"(${partial_pnl_usd:+.2f})\n"
+                    + (f"Stop → ${fx_math.fp(new_stop, sym)} (BE), trailing {remaining_units:,} to upper BB"
+                       if new_stop else "")
+                )
+            continue
 
         if exit_cmd.get('action') == 'TAKE_PROFIT':
             pnl_usd = (fx_math.position_notional_usd(sym, units, price)
@@ -333,6 +373,27 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
                 f"(+${pnl_usd:,.2f}) · "
                 f"${fx_math.fp(entry_price, sym)}→${fx_math.fp(price, sym)}"
             )
+            continue
+
+        # ── B2. Regime-shift tightening ────────────────────────────────────
+        # TF/VB position whose regime flipped to RANGING: lock in gains with a
+        # 1× ATR stop, floored at entry so we never tighten into a locked loss.
+        # Preempts the normal trailing ratchet, which uses a wider multiplier.
+        # Parity with Tiberius core/main.py:1387.
+        if exit_cmd.get('action') == 'HOLD_AND_TIGHTEN':
+            tight_sl = max(entry_price, price - atr)
+            if tight_sl > cur_stop and tight_sl < price:
+                database.update_shadow_stop(sym, tight_sl)
+                logger.info(
+                    f"[{sym}] HOLD_AND_TIGHTEN: stop "
+                    f"{fx_math.fp(cur_stop, sym)} → {fx_math.fp(tight_sl, sym)} "
+                    f"(regime→RANGING, BE floor)"
+                )
+                await _notify(
+                    f"⚠️ <b>REGIME SHIFT — STOP TIGHTENED</b> {sym}\n"
+                    f"{entry_strat} · ${fx_math.fp(cur_stop, sym)} → "
+                    f"${fx_math.fp(tight_sl, sym)} (1× ATR, BE floor)"
+                )
             continue
 
         # ── C. Trailing ratchet ────────────────────────────────────────────
@@ -652,7 +713,70 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
     })
     shadow_cash   = snap.get('cash', 0.0)
     shadow_equity = snap.get('equity', 0.0)
-    max_open      = config.get('strategy', {}).get('max_open_trades', 5)
+
+    # --- TIERED DRAWDOWN STATE MACHINE ---
+    # Peak-based: NORMAL → ALERT → DERISK → HALT, with hysteresis on DERISK exit.
+    # Parity with Anton/Tiberius. HALT cleared only by /resume.
+    peak_equity = database.get_equity_peak()
+    if peak_equity == 0.0 or shadow_equity > peak_equity:
+        database.update_equity_peak(shadow_equity)
+        peak_equity = shadow_equity
+
+    drawdown_pct = max(0.0, (peak_equity - shadow_equity) / peak_equity * 100) if peak_equity > 0 else 0.0
+    risk_cfg     = config.get('risk', {})
+    alert_pct    = risk_cfg.get('drawdown_alert_pct',    8.0)
+    derisk_pct   = risk_cfg.get('drawdown_derisk_pct',   15.0)
+    halt_pct     = risk_cfg.get('drawdown_halt_pct',     25.0)
+    recovery_pct = risk_cfg.get('drawdown_recovery_pct', 10.0)
+
+    if drawdown_pct >= halt_pct:
+        target_mode = 'HALT'
+    elif drawdown_pct >= derisk_pct:
+        target_mode = 'DERISK'
+    elif drawdown_pct >= alert_pct:
+        target_mode = 'ALERT'
+    else:
+        target_mode = 'NORMAL'
+
+    risk_state = database.get_risk_state()
+    prev_mode  = risk_state.get('risk_mode', 'NORMAL')
+    # Hysteresis: stay in DERISK until drawdown shrinks below recovery_pct
+    if prev_mode == 'DERISK' and target_mode in ('NORMAL', 'ALERT') and drawdown_pct >= recovery_pct:
+        target_mode = 'DERISK'
+    # HALT is sticky — only /resume can clear it
+    if prev_mode == 'HALT' and target_mode != 'HALT':
+        target_mode = 'HALT'
+
+    if target_mode != prev_mode:
+        database.update_risk_state(risk_mode=target_mode)
+        icon = {'NORMAL':'✅', 'ALERT':'⚠️', 'DERISK':'🟡', 'HALT':'🚨'}[target_mode]
+        logger.warning(f"RISK MODE: {prev_mode} → {target_mode} (drawdown {drawdown_pct:.1f}%)")
+        msg = (f"{icon} <b>RISK MODE → {target_mode}</b>\n"
+               f"Drawdown <b>{drawdown_pct:.1f}%</b> from peak "
+               f"(${peak_equity:,.2f} → ${shadow_equity:,.2f})")
+        if target_mode == 'DERISK':
+            mult = risk_cfg.get('derisk_size_multiplier', 0.5)
+            msg += f"\nPosition sizing × {mult} until recovery to {recovery_pct}%"
+        elif target_mode == 'HALT':
+            msg += "\n⛔ Trading halted. Open stops active. Use /resume after review."
+        elif target_mode == 'NORMAL' and prev_mode in ('DERISK', 'ALERT'):
+            msg += "\nFull sizing restored."
+        await _notify(msg)
+
+    # HALT short-circuits new entries. Open positions keep ratcheting through
+    # the shadow exit engine that already ran above.
+    if target_mode == 'HALT':
+        return
+
+    # DERISK halves the effective equity passed to sizing — math is equivalent
+    # to halving both risk_per_trade_pct and position_size_max_pct (Tiberius's
+    # explicit knobs in execution.py). Both surfaces scale linearly with equity.
+    if target_mode == 'DERISK':
+        derisk_mult   = risk_cfg.get('derisk_size_multiplier', 0.5)
+        shadow_equity = shadow_equity * derisk_mult
+        logger.info(f"DERISK active — sizing equity scaled to ${shadow_equity:,.2f} (× {derisk_mult})")
+
+    max_open = config.get('strategy', {}).get('max_open_trades', 5)
     if len(open_symbols) >= max_open:
         logger.info(f"At max open trades ({len(open_symbols)}/{max_open}); skipping entry scan.")
         return
