@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-18 (Tuner trigger wired into engine loop — feature parity with Anton/Tiberius)
+> Last updated: 2026-05-19 (Alpaca scaffolding purged: FX-native /api/session, config_manager pruned, alpaca-py uninstalled)
 
 ---
 
@@ -854,6 +854,96 @@ internal per-strategy + cooling-off guards take over from there.
 This brings Sulla to feature parity with Anton and Tiberius on the
 tuning mechanism. Verified post-restart: first cycle ran clean, no
 exceptions, all 7 FX pairs scanned normally.
+
+## Alpaca Scaffolding Purge — FX-Native /api/session (2026-05-19)
+
+The Phase 1 rsync from Anton left several Alpaca-shaped code paths that
+nothing ever ported off. They worked (or appeared to) because the alpaca-py
+package was still pinned in `requirements.txt`, satisfying the imports.
+But the runtime semantics were wrong: `/api/session` was asking Alpaca's
+US-equity clock whether US-equity hours were open and returning
+`Pre-Market`/`After Hours`/`Weekend` for Sulla's FX dashboard. Cleanup:
+
+- **`api/main.py` — `/api/session` rewritten for FX 24/5.** Dropped
+  `_alpaca_is_open()` (Alpaca clock + 60s cache) and the equity-flavored
+  `_market_session_status()` (9:30-AM-/-3:30-PM-/-4:00-PM-ET branches).
+  Replaced with a pure-datetime helper that calls
+  `execution.is_market_open()` (canonical FX gate: Sun 17:00 ET → Fri
+  17:00 ET) and returns:
+  - `{open: True, status: "Open"}` (continuous most of the week)
+  - `{open: True, status: "Open", closes_in_minutes: N}` when Friday
+    close is within 24h
+  - `{open: False, status: "Closed", opens_in_minutes: N}` over the
+    weekend gap (countdown to Sunday 17:00 ET)
+  Tested across all the boundary times (Mon morning, Wed afternoon, Fri
+  16:59 ET, Fri 17:00 ET, Sat noon, Sun 16:59 ET, Sun 17:00 ET) —
+  payload is correct at every transition.
+
+- **`api/main.py` — `_CONFIG_REQUIRED_KEYS` fixed.** The save-config
+  validator was requiring `"alpaca"` in the posted Config, but Sulla's
+  Config.yaml has `"oanda"` — meaning every POST to `/api/config` from
+  the dashboard was returning HTTP 422. Changed `"alpaca"` → `"oanda"`.
+  Save flow now actually works.
+
+- **`api/main.py` — module docstring** updated from "TradFi instance —
+  Alpaca Paper Account / US Equities" to "FX instance — Oanda v20
+  (Phase 1 scaffold; shadow-only)."
+
+- **`core/config_manager.py` — dead Alpaca client factory removed.**
+  Deleted `get_trading_client()` and `get_data_client()` plus their
+  module-level `_trading_client` / `_data_client` caches. Removed the
+  `requests.adapters.HTTPAdapter` and `urllib3.util.retry.Retry` imports
+  that only existed to hand-roll Alpaca's "network armor." Updated the
+  module header comment from "TradFi Alpaca keys + centralized Alpaca
+  client instances" to "FX (Oanda) secrets + Config.yaml; Oanda client
+  itself is constructed in the broker adapter."
+
+- **`requirements.txt`** — `alpaca-py==0.43.2` removed. Confirmed
+  post-rebuild: `pip show alpaca-py` reports "not found" inside
+  sulla-api, and `import alpaca` raises ImportError.
+
+- **`web/src/pages/Dashboard.jsx`** — `SessionBadge` collapsed from the
+  five-status equity palette (`Open` / `No New Entries` / `Pre-Market`
+  / `After Hours` / `Weekend`) to the two-status FX palette (`Open`
+  green, `Closed` gray). Fallback color updated to `Closed`.
+
+### Live verification post-rebuild
+
+```
+$ docker exec sulla-api pip show alpaca-py
+WARNING: Package(s) not found: alpaca-py
+
+$ docker exec sulla-api python3 -c "
+  import config_manager
+  print(hasattr(config_manager, 'get_trading_client'),
+        hasattr(config_manager, 'get_data_client'))"
+False False
+
+$ docker exec sulla-api python3 -c "
+  import main; print(main._market_session_status())"
+{'open': True, 'status': 'Open'}    # Tue 10:58 ET, > 24h from Fri close
+
+$ curl -s http://127.0.0.1:8002/api/health
+{"status":"ok","service":"Sulla API","version":"1.0.0"}
+```
+
+All three containers rebuilt + recreated from `~/swarm/`, all healthy.
+Engine cycle is running the 5-min FX scan normally; no errors in the
+sulla-api uvicorn boot log.
+
+### Known residue (out of scope this pass)
+
+- **`core/config_manager.py:load_secrets()`** still returns
+  `alpaca_api_key` / `alpaca_secret_key` env reads. These are harmless
+  (return `None` since the env vars are unset) and have no import
+  dependency on alpaca-py — pure `os.getenv`. Worth deleting eventually
+  for cleanliness; not blocking anything today.
+- **`scripts/lightweight_backtest.py`** is the Anton SPY/QQQ backtest
+  harness, imports `alpaca.data.*` at module level. With alpaca-py
+  removed from `requirements.txt` it will now ImportError on launch
+  inside the container. It's a standalone tool (not wired into the
+  engine), so the trading loop is unaffected. Decide later whether to
+  delete it or port it to Oanda v20 candle endpoint.
 
 ## How to Resume With Claude
 

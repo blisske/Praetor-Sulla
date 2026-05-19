@@ -1,7 +1,7 @@
 """
 Sulla API — FastAPI backend
 Serves REST endpoints and WebSocket stream for the Sulla React dashboard.
-TradFi instance — Alpaca Paper Account / US Equities
+FX instance — Oanda v20 (Phase 1 scaffold; shadow-only).
 """
 import asyncio
 import time
@@ -46,6 +46,7 @@ RESTART_FLAG_PATH = Path(os.environ.get(
 
 sys.path.insert(0, str(CORE_DIR))
 import config_manager
+import execution
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Sulla API", version="1.0.0")
@@ -191,52 +192,43 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
 
 # ── Market session helper ─────────────────────────────────────────────────────
-# Cache the Alpaca clock result for 60 seconds — called every 5s by WebSocket ticks.
-_clock_cache: dict = {"ts": 0.0, "is_open": False}
-
-def _alpaca_is_open() -> bool:
-    """Returns Alpaca clock open status, cached for 60 seconds."""
-    import time as _time
-    if _time.time() - _clock_cache["ts"] < 60:
-        return _clock_cache["is_open"]
-    try:
-        tc = config_manager.get_trading_client()
-        _clock_cache["is_open"] = tc.get_clock().is_open
-        _clock_cache["ts"]      = _time.time()
-    except Exception:
-        pass  # Serve stale cache on error
-    return _clock_cache["is_open"]
-
+# FX is 24/5: open Sun 17:00 ET → Fri 17:00 ET. execution.is_market_open() is
+# a pure datetime check (no broker round-trip), so no caching needed even
+# though this is called every 5s by the WebSocket tick.
 def _market_session_status() -> dict:
-    """Returns current market session status for the dashboard.
-    Uses the Alpaca clock for open/closed so holidays are handled correctly."""
+    """Returns current FX session status for the dashboard.
+    Open continuously Sun 17:00 ET → Fri 17:00 ET; closed weekends only."""
     ny  = pytz.timezone("America/New_York")
     now = datetime.now(ny)
 
-    market_open  = now.replace(hour=9,  minute=30, second=0, microsecond=0)
-    market_close = now.replace(hour=16, minute=0,  second=0, microsecond=0)
-    entry_cutoff = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    if execution.is_market_open():
+        # Next Friday 17:00 ET is the weekly close. Only surface
+        # closes_in_minutes when it's within 24h — otherwise the badge is
+        # noisy ("closes in 4382m" on Monday morning).
+        days_to_friday = (4 - now.weekday()) % 7
+        friday_close = (now + timedelta(days=days_to_friday)).replace(
+            hour=17, minute=0, second=0, microsecond=0
+        )
+        if friday_close <= now:
+            friday_close += timedelta(days=7)
 
-    alpaca_open = _alpaca_is_open()
+        mins = int((friday_close - now).total_seconds() // 60)
+        if mins <= 24 * 60:
+            return {"open": True, "status": "Open", "closes_in_minutes": mins}
+        return {"open": True, "status": "Open"}
 
-    if not alpaca_open:
-        if now.weekday() >= 5:
-            return {"open": False, "status": "Weekend", "next_open": "Monday 9:30 AM ET"}
-        if now < market_open:
-            delta = market_open - now
-            mins  = int(delta.total_seconds() // 60)
-            return {"open": False, "status": "Pre-Market", "opens_in_minutes": mins}
-        if now > market_close:
-            return {"open": False, "status": "After Hours", "next_open": "Tomorrow 9:30 AM ET"}
-        # Market hours but Alpaca says closed → holiday
-        return {"open": False, "status": "Market Holiday", "next_open": "Next trading day 9:30 AM ET"}
+    # Closed — compute next Sunday 17:00 ET. Closed states are: Fri ≥17:00,
+    # all of Sat, Sun <17:00. In every case the next open is the upcoming
+    # Sunday 17:00 ET.
+    days_to_sunday = (6 - now.weekday()) % 7
+    sunday_open = (now + timedelta(days=days_to_sunday)).replace(
+        hour=17, minute=0, second=0, microsecond=0
+    )
+    if sunday_open <= now:
+        sunday_open += timedelta(days=7)
 
-    if now >= entry_cutoff:
-        return {"open": True, "status": "No New Entries", "note": "Entry cutoff reached (3:30 PM ET)"}
-
-    delta = market_close - now
-    mins  = int(delta.total_seconds() // 60)
-    return {"open": True, "status": "Open", "closes_in_minutes": mins}
+    mins = int((sunday_open - now).total_seconds() // 60)
+    return {"open": False, "status": "Closed", "opens_in_minutes": mins}
 
 # ── Auth endpoint ─────────────────────────────────────────────────────────────
 @app.post("/api/auth/login", response_model=Token)
@@ -460,7 +452,7 @@ async def get_config(user: str = Depends(get_current_user)):
     config = config_manager.load_engine_config()
     return {"config": config}
 
-_CONFIG_REQUIRED_KEYS = {"alpaca", "strategy", "risk", "ratchet", "ai_agent"}
+_CONFIG_REQUIRED_KEYS = {"oanda", "strategy", "risk", "ratchet", "ai_agent"}
 
 @app.post("/api/config")
 async def save_config(payload: dict, user: str = Depends(get_current_user)):

@@ -2,15 +2,14 @@ import os
 import yaml
 import datetime
 import pytz
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from dotenv import load_dotenv
 from pathlib import Path
 
 # ==============================================================================
 # SULLA V1 - CONFIGURATION & SECRETS MANAGER (The Rulebook)
-# Handles loading TradFi Alpaca keys, reading dynamic trading parameters,
-# and providing centralized Alpaca client instances to all modules.
+# Loads FX (Oanda) secrets from .env and dynamic trading parameters from
+# Config.yaml. The Oanda v20 broker client itself is constructed in the
+# broker adapter (Phase 2+); this module is config/secrets only.
 # ==============================================================================
 
 BASE_DIR = Path(__file__).parent
@@ -24,59 +23,6 @@ CONFIG_PATH = Path(os.environ.get('CONFIG_PATH', BASE_DIR / 'Config.yaml'))
 # is absent, which is the desired behavior in containers (env arrives via
 # compose `env_file:` / `environment:` instead).
 load_dotenv(ENV_PATH)
-
-# Centralized Alpaca clients (lazy-initialized, shared across all modules)
-_trading_client = None
-_data_client = None
-
-def get_trading_client():
-    """Returns the shared Alpaca TradingClient with Omada network armor."""
-    global _trading_client
-    if _trading_client is None:
-        from alpaca.trading.client import TradingClient
-        _trading_client = TradingClient(
-            os.getenv("ALPACA_API_KEY"),
-            os.getenv("ALPACA_SECRET_KEY"),
-            paper=True
-        )
-
-        # --- THE NETWORK ARMOR ---
-        # Tells the underlying session to retry on brief connection drops
-        retry_strategy = Retry(
-            total=3,           # Try 3 times before actually throwing a timeout
-            backoff_factor=1,  # Wait 1s, 2s, 4s between retries
-            status_forcelist=[429, 500, 502, 503, 504],
-            # CRITICAL: We only auto-retry GET requests (fetching data/status).
-            # We NEVER auto-retry POST (submitting orders) to prevent double-buys.
-            allowed_methods=["HEAD", "GET", "OPTIONS"]
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        _trading_client._session.mount("https://", adapter)
-        _trading_client._session.mount("http://", adapter)
-
-    return _trading_client
-
-def get_data_client():
-    """Returns the shared Alpaca HistoricalDataClient with Omada network armor."""
-    global _data_client
-    if _data_client is None:
-        from alpaca.data.historical import StockHistoricalDataClient
-        _data_client = StockHistoricalDataClient(
-            os.getenv("ALPACA_API_KEY"),
-            os.getenv("ALPACA_SECRET_KEY")
-        )
-
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS"]
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        _data_client._session.mount("https://", adapter)
-        _data_client._session.mount("http://", adapter)
-
-    return _data_client
 
 def load_secrets():
     """

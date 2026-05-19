@@ -58,12 +58,9 @@ function SessionBadge({ session }) {
   if (!session) return null
   const colors = {
     'Open':            { bg: 'rgba(34,197,94,0.12)',  color: '#22c55e', dot: '#22c55e' },
-    'No New Entries':  { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b', dot: '#f59e0b' },
-    'Pre-Market':      { bg: 'rgba(100,116,139,0.15)',color: '#94a3b8', dot: '#94a3b8' },
-    'After Hours':     { bg: 'rgba(100,116,139,0.15)',color: '#94a3b8', dot: '#94a3b8' },
-    'Weekend':         { bg: 'rgba(100,116,139,0.15)',color: '#94a3b8', dot: '#94a3b8' },
+    'Closed':          { bg: 'rgba(100,116,139,0.15)',color: '#94a3b8', dot: '#94a3b8' },
   }
-  const c = colors[session.status] ?? colors['Pre-Market']
+  const c = colors[session.status] ?? colors['Closed']
   return (
     <span style={{ display:'inline-flex', alignItems:'center', gap:5, background:c.bg, color:c.color, border:`1px solid ${c.color}33`, padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:600 }}>
       <span style={{ width:6, height:6, borderRadius:'50%', background:c.dot, flexShrink:0 }} />
