@@ -267,7 +267,9 @@ async def health():
 
 @app.get("/api/session")
 async def get_session(user: str = Depends(get_current_user)):
-    """Market session status — unique to Sulla (equities are session-bound)."""
+    """FX market session status. Sulla + Anton both expose /api/session
+    since both asset classes have session boundaries; Tiberius doesn't
+    (crypto trades 24/7)."""
     return _market_session_status()
 
 @app.get("/api/trades")
