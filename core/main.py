@@ -48,6 +48,7 @@ import ai_brain
 import execution
 import fx_math
 import macro_calendar
+import tuner
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -1060,6 +1061,22 @@ async def trading_loop_async() -> None:
             await _run_cycle(config, symbols, timeframe)
         except Exception as e:
             logger.error(f"Cycle failed: {e}", exc_info=True)
+
+        # --- TUNER: trade-count trigger (DB-backed, restart-safe) ---
+        # Mirrors the Tiberius pattern landed 2026-05-18: count closed shadow
+        # trades from the persistent DB, not a session-only counter, so the
+        # gate survives engine restarts.
+        try:
+            _min_t = config.get('tuning', {}).get('min_trades_to_tune', 10)
+            _db_counts: dict[str, int] = {}
+            for _t in database.get_closed_trades():
+                _db_counts[_t['symbol']] = _db_counts.get(_t['symbol'], 0) + 1
+            _ready = [s for s, cnt in _db_counts.items() if cnt >= _min_t]
+            if _ready:
+                logger.info(f"[TUNER] Trigger fired for: {_ready}")
+                tuner.run_tuning_cycle(_ready)
+        except Exception as e:
+            logger.warning(f"Tuner trigger failed: {e}", exc_info=True)
 
         sleep_total = max(60, interval * 60)
         slept = 0

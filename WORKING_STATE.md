@@ -1,7 +1,7 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-17 (BEARISH VETO triage — consensus floor + cooldown + truncation)
+> Last updated: 2026-05-18 (Tuner trigger wired into engine loop — feature parity with Anton/Tiberius)
 
 ---
 
@@ -820,6 +820,40 @@ design) so it received only the Config bump.
 Deployed all three engines via
 `docker compose up -d --build anton-engine tiberius-engine sulla-engine`
 from `~/swarm/`. All three healthy and cycling at 20:07 ET.
+
+## Tuner Trigger Wired Into Engine Loop (2026-05-18, evening)
+
+While fixing a session-counter bug on Anton and Tiberius's tuner trigger,
+discovered Sulla's main.py was **missing the tuner invocation entirely**.
+`tuner.py` existed (with the full `run_tuning_cycle()` implementation),
+the `tuning_log` table existed, the config had a `tuning:` section, and
+`/pnl` even claimed symbols were "tuning cycle eligible" once they hit 10
+closes — but no code path called `tuner.run_tuning_cycle()`. The
+mechanism was scaffolded and never wired.
+
+Fix: imported `tuner` at the top of `core/main.py` and added a
+DB-backed trigger block in `trading_loop_async()` right after
+`_run_cycle()` returns. Same pattern landing the same day on Tiberius:
+
+    _min_t = config.get('tuning', {}).get('min_trades_to_tune', 10)
+    _db_counts = {}
+    for _t in database.get_closed_trades():
+        _db_counts[_t['symbol']] = _db_counts.get(_t['symbol'], 0) + 1
+    _ready = [s for s, cnt in _db_counts.items() if cnt >= _min_t]
+    if _ready:
+        logger.info(f"[TUNER] Trigger fired for: {_ready}")
+        tuner.run_tuning_cycle(_ready)
+
+Wrapped in try/except so any tuner-side bug doesn't take down the trading
+loop. Sulla currently has 0 closed shadow trades (just started cycling
+after the Oanda credentials landed earlier this week), so the block runs
+silently every cycle. Once any symbol accumulates 10 closes, the
+`[TUNER] Trigger fired` line will appear in engine logs and the tuner's
+internal per-strategy + cooling-off guards take over from there.
+
+This brings Sulla to feature parity with Anton and Tiberius on the
+tuning mechanism. Verified post-restart: first cycle ran clean, no
+exceptions, all 7 FX pairs scanned normally.
 
 ## How to Resume With Claude
 
