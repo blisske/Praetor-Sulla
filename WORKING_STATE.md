@@ -1,9 +1,47 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-19 (WebSocket event broadcasts — engine→dashboard real-time)
+> Last updated: 2026-05-19 (Tier 2 drift audit closeout + automated drift detector)
 
 ---
+
+## 2026-05-19 — Tier 2 drift audit closeout
+
+Three Sulla findings closed:
+
+1. **`position_size_usd` was dead column.** Yesterday's schema migration
+   added the column for parity with Tiberius; the SHADOW BUY call sites
+   in `_evaluate_entry` and the manual `/buy` handler never wrote a
+   value, so it always stored 0. Fixed `record_open_position` to accept
+   the kwarg and updated both call sites to pass FX notional.
+
+2. **`get_tuning_summary` accepts `limit=50` kwarg** — matches Tiberius.
+
+3. **`/api/session` docstring fix** — said "equities are session-bound"
+   (an Anton copy-paste artifact). FX is the actual asset class.
+
+## 2026-05-19 — Automated drift detector (`scripts/drift/praetor_drift.py`)
+
+Cron-driven cross-bot drift detector, lives at
+`/home/blisske/swarm/scripts/drift/` outside any git repo (same pattern
+as backup scripts). Daily at 9 AM MDT.
+
+**Categories checked:** module presence · Config.yaml keys ·
+`requirements.txt` versions · Telegram commands · SQLite table schemas
+(per-column) · public function signatures · live `/api/*` response
+shapes.
+
+Known architectural drift is documented inline with reasons —
+FX-specific helpers, `/calendar` (Sulla-only) vs `/catalysts`
+(Tiberius-only) vs `/earnings` (Anton-only) commands, the existing
+inline-vs-helper pattern for MTF gate, etc.
+
+**Cron pipeline:**
+- `drift_cron.sh` runs `praetor_drift.py`
+- Clean exit: silent (logs to `/tmp/drift.log`)
+- Non-zero exit: Telegram ping via the Tiberius bot token
+
+**First-run state: 0 items flagged.**
 
 ## 2026-05-19 — WebSocket event broadcasts wired
 
