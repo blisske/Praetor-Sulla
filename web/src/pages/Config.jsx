@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../lib/api.js'
-import { Save, RotateCcw, AlertTriangle, RefreshCw, Plus, X } from 'lucide-react'
+import { Save, RotateCcw, AlertTriangle, RefreshCw, Plus, X, ChevronDown, ChevronRight } from 'lucide-react'
 import HelpTip from '../components/HelpTip.jsx'
 
 const BLUE = '#3B82F6'
@@ -34,11 +34,20 @@ function Toggle({ label, value, onChange, hint, help }) {
   )
 }
 
-function Section({ title, children }) {
+function Section({ title, children, collapsible = false, defaultOpen = true, badge }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const isCollapsed = collapsible && !open
   return (
     <div className="rounded-xl p-5 space-y-4" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
-      <h2 style={{ fontSize:'0.8rem', fontWeight:600, color:'var(--text-sub)', borderBottom:'1px solid var(--border-row)', paddingBottom:'0.75rem' }}>{title}</h2>
-      {children}
+      <h2
+        onClick={() => collapsible && setOpen(o => !o)}
+        style={{ fontSize:'0.8rem', fontWeight:600, color:'var(--text-sub)', borderBottom: isCollapsed ? 'none' : '1px solid var(--border-row)', paddingBottom: isCollapsed ? 0 : '0.75rem', display:'flex', alignItems:'center', gap:6, cursor: collapsible ? 'pointer' : 'default', userSelect:'none' }}
+      >
+        {collapsible && (open ? <ChevronDown size={14} style={{opacity:0.6}}/> : <ChevronRight size={14} style={{opacity:0.6}}/>)}
+        {title}
+        {badge && <span style={{ marginLeft:'auto', fontSize:'0.65rem', fontWeight:500, color:'var(--text-dim)', textTransform:'none', letterSpacing:0 }}>{badge}</span>}
+      </h2>
+      {!isCollapsed && children}
     </div>
   )
 }
@@ -108,7 +117,8 @@ export default function Config() {
   const ratchet   = config.ratchet ?? {}
   const tuning    = config.tuning ?? {}
   const ai        = config.ai_agent?.sentiment_analysis ?? {}
-  const shadow    = config.alpaca?.shadow_mode ?? true
+  const shadow    = config.oanda?.shadow_mode ?? true
+  const macro     = config.macro_blackout ?? {}
   const symbols   = strategy.active_symbols ?? []
   const mtf       = config.mtf_filter ?? {}
   const corr      = config.correlation_aware_sizing ?? {}
@@ -150,9 +160,9 @@ export default function Config() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
         <Section title="Mode">
-          <Toggle label="Shadow Mode" value={shadow} onChange={v => set('alpaca.shadow_mode', v)}
-            hint="⚠️ Disable only when ready for live trading"
-            help="Paper trading mode — full pipeline runs but no real orders placed on Alpaca. Accumulate shadow trades before going live." />
+          <Toggle label="Shadow Mode" value={shadow} onChange={v => set('oanda.shadow_mode', v)}
+            hint="⚠️ Disable only when ready for live Oanda trading"
+            help="Paper trading mode — full pipeline runs but no real orders placed on Oanda. Accumulate shadow trades before going live." />
           <Toggle label="Autonomous Mode" value={strategy.autonomous_mode ?? true} onChange={v => set('strategy.autonomous_mode', v)}
             hint="When off, bot advises but does not trade"
             help="When enabled, Sulla places orders automatically when consensus passes. When disabled, evaluates signals and logs what it would do without executing." />
@@ -181,8 +191,8 @@ export default function Config() {
               help="Drawdown must shrink below this value to exit DERISK back to NORMAL/ALERT. Prevents flapping at the threshold." />
             <Field label="Derisk Multiplier" value={risk.derisk_size_multiplier} onChange={v => set('risk.derisk_size_multiplier', v)} type="number" hint="Default 0.5"
               help="Position sizing multiplier applied while in DERISK mode. Composes multiplicatively with correlation-aware sizing." />
-            <Field label="Daily Loss Limit (%)" value={risk.daily_session_loss_pct} onChange={v => set('risk.daily_session_loss_pct', v)} type="number" hint="Sulla-only intraday circuit"
-              help="If intraday equity drops this far below the session-start equity, new entries are blocked rest of session. Existing positions exit normally. Auto-clears at next session." />
+            <Field label="Daily Loss Limit (%)" value={risk.daily_session_loss_pct} onChange={v => set('risk.daily_session_loss_pct', v)} type="number" hint="ET-day intraday circuit"
+              help="If intraday equity drops this far below the ET-day start equity, new entries are blocked for the rest of the day. Existing positions exit normally. Auto-clears at next day boundary." />
           </div>
         </Section>
 
@@ -195,14 +205,7 @@ export default function Config() {
             <Field label="EMA Fast" value={strategy.ema_fast} onChange={v => set('strategy.ema_fast', v)} type="number"
               help="Fast EMA period for trend direction. On 30-min bars, EMA 9 = ~4.5 hours of price action." />
             <Field label="EMA Slow" value={strategy.ema_slow} onChange={v => set('strategy.ema_slow', v)} type="number"
-              help="Slow EMA period. On 30-min bars, EMA 21 = ~10.5 hours. The 9/21 crossover identifies trend direction." />
-            <Field label="Earnings Blackout (days)" value={strategy.earnings_blackout_days} onChange={v => set('strategy.earnings_blackout_days', v)} type="number"
-              help="Number of days before a scheduled earnings release during which Sulla will not open new positions in that stock. Prevents entering before high-volatility events." />
-            <Field label="EOD Exit Hour (ET)" value={strategy.eod_exit_hour} onChange={v => set('strategy.eod_exit_hour', v)} type="number"
-              help="Hour (ET) at which Sulla force-exits all positions before market close. Default 15 = 3 PM ET. Combined with EOD Exit Minute." />
-            <Field label="EOD Exit Minute" value={strategy.eod_exit_minute} onChange={v => set('strategy.eod_exit_minute', v)} type="number"
-              hint="Default: 50 (3:50 PM ET)"
-              help="Minute combined with EOD Exit Hour. Default 15:50 ET gives 10 minutes of buffer before the 4:00 PM close." />
+              help="Slow EMA period. On 1h bars, EMA 21 = ~21 hours. The 9/21 crossover identifies trend direction." />
           </div>
         </Section>
 
@@ -223,51 +226,65 @@ export default function Config() {
             <Field label="Trailing Stop Multiplier" value={ratchet.trailing_stop_mult} onChange={v => set('ratchet.trailing_stop_mult', v)} type="number"
               help="ATR multiplier for the ratchet trailing stop. As price rises, stop is tightened to new_high − (ATR × multiplier). Stops only move up, never down." />
           </div>
-          <Toggle label="Power Hour Defense" value={ratchet.power_hour_defense?.enabled ?? true} onChange={v => set('ratchet.power_hour_defense.enabled', v)}
-            hint="Widens stops 3:00–4:00 PM ET"
-            help="During the final hour of trading (Power Hour), institutional activity increases volatility. This widens the trailing stop by an ATR buffer to avoid being stopped out on normal end-of-day noise." />
+          <Toggle label="Volatility-Window Defense" value={ratchet.power_hour_defense?.enabled ?? true} onChange={v => set('ratchet.power_hour_defense.enabled', v)}
+            hint="Widens stops during London/NY overlap (08:00–12:00 ET)"
+            help="FX's highest-volume window is the London/NY overlap. This widens the trailing stop by an ATR buffer to avoid being stopped out on normal overlap-period noise. Window is configurable via start_hour_et / end_hour_et in Config.yaml." />
         </Section>
 
-        <Section title="Self-Tuning Engine">
-          <Toggle label="Tuning Enabled" value={tuning.enabled ?? true} onChange={v => set('tuning.enabled', v)}
-            help="Master switch for autonomous parameter optimization. When enabled, Sulla evaluates shadow trade performance and proposes parameter adjustments within defined safety bounds." />
+        <Section title="Macro Blackout" collapsible defaultOpen={false} badge="Sulla-specific">
+          <Toggle label="Macro Blackout Enabled" value={macro.enabled ?? true} onChange={v => set('macro_blackout.enabled', v)}
+            hint="Skip entries around NFP / FOMC / ECB / BoE / BoJ prints"
+            help="Pulls the ForexFactory weekly JSON feed and blocks new entries on any pair whose base or quote currency has a high-impact event inside the window. Open positions exit normally." />
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Min Trades to Tune" value={tuning.min_trades_to_tune} onChange={v => set('tuning.min_trades_to_tune', v)} type="number"
-              help="Minimum closed shadow trades per symbol before the tuning engine analyzes performance. Ensures a statistically meaningful sample." />
-            <Field label="Shadow Trades Required" value={tuning.shadow_trades_required} onChange={v => set('tuning.shadow_trades_required', v)} type="number"
-              help="Additional shadow trade closes needed to validate a proposed parameter change before promotion." />
-            <Field label="Cooling Off (hours)" value={tuning.cooling_off_hours} onChange={v => set('tuning.cooling_off_hours', v)} type="number"
-              help="Minimum hours before the same parameter can be tuned again. Enforces a deliberate, measured tuning cadence." />
-            <Field label="Min Metric Improvement" value={tuning.min_metric_improvement} onChange={v => set('tuning.min_metric_improvement', v)} type="number"
-              help="Minimum improvement in Profit Factor required to promote a candidate parameter. At 0.05, candidate must beat baseline by at least 5%." />
+            <Field label="Minutes Before" value={macro.minutes_before} onChange={v => set('macro_blackout.minutes_before', v)} type="number" hint="Default 60"
+              help="Block entries this many minutes BEFORE a high-impact event." />
+            <Field label="Minutes After" value={macro.minutes_after} onChange={v => set('macro_blackout.minutes_after', v)} type="number" hint="Default 120"
+              help="...and this many minutes AFTER, to let initial volatility settle." />
+            <Field label="Importance Min" value={macro.importance_min} onChange={v => set('macro_blackout.importance_min', v)} hint="Low / Medium / High"
+              help="ForexFactory impact threshold. 'High' is the right default (NFP / FOMC / CPI / rate decisions). Wider filters block ~half the trading week." />
           </div>
         </Section>
 
-        <Section title="Multi-Timeframe Filter (Phase 4)">
-          <Toggle label="MTF Filter Enabled" value={mtf.enabled ?? true} onChange={v => set('mtf_filter.enabled', v)}
-            hint="Daily regime gate on TF and VB entries"
-            help="When enabled, TREND FOLLOWING and VOLATILITY BREAKOUT entries additionally require the symbol's daily EMA9/21 cross to be BULL. Mean Reversion and Liquidity Sweep are exempt — they're counter-trend by design." />
-        </Section>
-
-        <Section title="Correlation-Aware Sizing (Phase 5)">
-          <Toggle label="Correlation Sizing Enabled" value={corr.enabled ?? true} onChange={v => set('correlation_aware_sizing.enabled', v)}
-            hint="Scale down sizing as same-sector positions accumulate"
-            help="Acknowledges that 5 simultaneous tech-sector longs aren't 5 bets. Curve [1.0, 0.85, 0.70, 0.55, 0.40] indexed by count of same-sector open positions. Edit curve and sectors directly in Config.yaml." />
-        </Section>
-
-        <Section title="Pyramiding (Phase 7)">
+        <Section title="Pyramiding" collapsible defaultOpen={false} badge="Advanced">
           <Toggle label="Pyramiding Enabled" value={pyramid.enabled ?? false} onChange={v => set('pyramiding.enabled', v)}
             hint="⚠️ Default off — flip after first trend trade fires cleanly"
-            help="Adds legs to TREND FOLLOWING and VOLATILITY BREAKOUT positions. Mean Reversion and Liquidity Sweep are excluded — pyramiding into counter-trend paradigms means doubling down against the entry thesis. Default OFF; enable only after watching single-leg mechanics work end-to-end." />
+            help="Adds legs to TREND FOLLOWING and VOLATILITY BREAKOUT positions. Mean Reversion and Liquidity Sweep are excluded. Default OFF; enable only after watching single-leg mechanics work end-to-end." />
           <div className="grid grid-cols-2 gap-4">
             <Field label="Trigger ATR Multiple" value={pyramid.trigger_atr_mult} onChange={v => set('pyramiding.trigger_atr_mult', v)} type="number" hint="Default 1.0"
-              help="Price must advance this many ATR from the last leg's entry before another leg is eligible. Default 1.0 ATR keeps legs separated by meaningful price action." />
+              help="Price must advance this many ATR from the last leg's entry before another leg is eligible." />
             <Field label="Size Decay" value={pyramid.size_decay} onChange={v => set('pyramiding.size_decay', v)} type="number" hint="Default 0.5 (geometric)"
-              help="Each leg = previous-leg base × this. Default 0.5 → leg 2 is half-size, leg 3 is quarter-size. Caps total notional commitment as legs accumulate." />
+              help="Each leg = previous-leg base × this. Default 0.5 → leg 2 is half-size, leg 3 is quarter-size." />
             <Field label="Max Legs — Trend" value={pyramid.max_legs?.trend_following} onChange={v => set('pyramiding.max_legs.trend_following', v)} type="number" hint="Default 3"
-              help="Maximum simultaneous legs on a TREND FOLLOWING position. With size decay 0.5, total committed = base × (1 + 0.5 + 0.25) = 1.75× the base notional." />
+              help="Maximum simultaneous legs on a TREND FOLLOWING position." />
             <Field label="Max Legs — Breakout" value={pyramid.max_legs?.volatility_breakout} onChange={v => set('pyramiding.max_legs.volatility_breakout', v)} type="number" hint="Default 2 (tighter)"
-              help="Maximum simultaneous legs on a VOLATILITY BREAKOUT position. Capped tighter than trend because equity breakouts fade harder than crypto breakouts (mean-reversion is stronger in equities)." />
+              help="Maximum simultaneous legs on a VOLATILITY BREAKOUT position." />
+          </div>
+        </Section>
+
+        <Section title="Multi-Timeframe Filter" collapsible defaultOpen={false} badge="Advanced">
+          <Toggle label="MTF Filter Enabled" value={mtf.enabled ?? true} onChange={v => set('mtf_filter.enabled', v)}
+            hint="Daily regime gate on TF and VB entries"
+            help="When enabled, TREND FOLLOWING and VOLATILITY BREAKOUT entries additionally require the pair's daily EMA9/21 cross to be BULL. Mean Reversion and Liquidity Sweep are exempt — they're counter-trend by design." />
+        </Section>
+
+        <Section title="Correlation-Aware Sizing" collapsible defaultOpen={false} badge="Advanced">
+          <Toggle label="Correlation Sizing Enabled" value={corr.enabled ?? true} onChange={v => set('correlation_aware_sizing.enabled', v)}
+            hint="Scale down sizing as same-sector pairs accumulate"
+            help="FX majors share huge correlation through their USD leg. Curve [1.0, 0.85, 0.70, 0.55, 0.40] indexed by count of same-bucket open positions. Edit curve and buckets directly in Config.yaml." />
+        </Section>
+
+        <Section title="Self-Tuning Engine" collapsible defaultOpen={false} badge="Advanced">
+          <Toggle label="Tuning Enabled" value={tuning.enabled ?? true} onChange={v => set('tuning.enabled', v)}
+            help="Master switch for autonomous parameter optimization." />
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Min Trades to Tune" value={tuning.min_trades_to_tune} onChange={v => set('tuning.min_trades_to_tune', v)} type="number"
+              help="Minimum closed shadow trades per (symbol, paradigm) before tuning runs." />
+            <Field label="Shadow Trades Required" value={tuning.shadow_trades_required} onChange={v => set('tuning.shadow_trades_required', v)} type="number"
+              help="Additional shadow trade closes needed to validate a proposed parameter change before promotion." />
+            <Field label="Cooling Off (hours)" value={tuning.cooling_off_hours} onChange={v => set('tuning.cooling_off_hours', v)} type="number"
+              help="Minimum hours before the same parameter can be tuned again." />
+            <Field label="Min Metric Improvement" value={tuning.min_metric_improvement} onChange={v => set('tuning.min_metric_improvement', v)} type="number"
+              help="Min improvement in Profit Factor (0.05 = 5%) to promote a candidate." />
           </div>
         </Section>
 
@@ -275,7 +292,7 @@ export default function Config() {
         <div className="rounded-xl p-5 space-y-4 lg:col-span-2" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
           <h2 style={{ fontSize:'0.8rem', fontWeight:600, color:'var(--text-sub)', borderBottom:'1px solid var(--border-row)', paddingBottom:'0.75rem', display:'flex', alignItems:'center', gap:6 }}>
             Active Watchlist
-            <HelpTip text="Symbols Sulla monitors and trades. Changes take effect after restart — no code change needed. Sulla automatically runs earnings checks on all symbols in this list." />
+            <HelpTip text="FX pairs Sulla monitors and trades. Changes hot-reload at the next cycle — no restart needed. Macro blackout automatically checks the base + quote currency of each pair against the ForexFactory feed." />
           </h2>
           <div className="flex flex-wrap gap-2">
             {symbols.map(sym => (
@@ -290,7 +307,7 @@ export default function Config() {
           <div className="flex gap-2">
             <input value={newSymbol} onChange={e => setNewSymbol(e.target.value.toUpperCase())}
               onKeyDown={e => e.key === 'Enter' && addSymbol()}
-              placeholder="Add symbol (e.g. TSLA)"
+              placeholder="Add pair (e.g. EUR/USD)"
               style={{ flex:1, background:'var(--bg-elevated)', border:'1px solid var(--border-input)', borderRadius:'0.5rem', padding:'0.5rem 0.75rem', color:'var(--text-primary)', fontSize:'0.875rem', outline:'none', fontFamily:'inherit' }}
               onFocus={e => e.target.style.borderColor = BLUE}
               onBlur={e => e.target.style.borderColor = 'var(--border-input)'} />
