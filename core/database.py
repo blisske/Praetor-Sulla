@@ -37,16 +37,22 @@ def init_db():
         # Table 1: Trade History
         c.execute('''
             CREATE TABLE IF NOT EXISTS trades (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                symbol    TEXT,
-                action    TEXT,
-                price     REAL,
-                amount    REAL,
-                strategy  TEXT,
-                verdict   TEXT
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp         DATETIME DEFAULT CURRENT_TIMESTAMP,
+                symbol            TEXT,
+                action            TEXT,
+                price             REAL,
+                amount            REAL,
+                strategy          TEXT,
+                verdict           TEXT,
+                position_size_usd REAL DEFAULT 0.0
             )
         ''')
+        # Idempotent add for existing DBs predating the position_size_usd column.
+        try:
+            c.execute("ALTER TABLE trades ADD COLUMN position_size_usd REAL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
         # Table 2: Market State History
         c.execute('''
@@ -194,25 +200,20 @@ def init_db():
 # TRADE LOGGING
 # ==============================================================================
 
-def log_trade(symbol, action, price, amount, strategy, verdict=""):
+def log_trade(symbol, action, price, amount, strategy, verdict="", position_size_usd=0.0):
     """
     Writes a new trade event to the ledger.
 
-    Args:
-        symbol   (str):   The asset traded (e.g., 'SPY' or 'AAPL')
-        action   (str):   The type of order ('BUY', 'SELL', 'PAPER BUY', 'RATCHET', 'KILL SWITCH')
-        price    (float): The execution or trigger price
-        amount   (float): The size of the position in fractional shares
-        strategy (str):   The paradigm used (e.g., 'TREND FOLLOWING' or 'MEAN REVERSION')
-        verdict  (str):   The AI's reasoning or the trigger reason
+    position_size_usd stores the dollar exposure at fill time, independent
+    of price drift afterward — useful for the tuner + risk analytics.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute('''
-            INSERT INTO trades (symbol, action, price, amount, strategy, verdict)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (symbol, action, price, amount, strategy, verdict))
+            INSERT INTO trades (symbol, action, price, amount, strategy, verdict, position_size_usd)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (symbol, action, price, amount, strategy, verdict, position_size_usd))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -482,7 +483,7 @@ def log_tuning_change(symbol, parameter, old_value, new_value, metric_name,
         return None
 
 
-def get_closed_trades(symbol=None):
+def get_closed_shadow_trades(symbol=None, strategy=None, limit=200):
     """
     Returns closed trades (shadow and live) as list of dicts with pnl_pct extracted
     from the verdict field (format: 'TAKE PROFIT: +3.6%', 'STOP HIT: -1.4%',
@@ -490,21 +491,29 @@ def get_closed_trades(symbol=None):
     percentage (e.g. 'EOD FORCE-EXIT') are silently dropped from the result.
     Includes both SHADOW SELL and live SELL actions so the tuner keeps learning
     after shadow_mode is set to false.
+
+    Args:
+        symbol:   optional filter, exact match
+        strategy: optional filter, exact match (e.g. 'VOLATILITY BREAKOUT')
+        limit:    max rows (most recent first); None = no limit
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
+        sql = ("SELECT id, symbol, strategy, verdict, timestamp, amount FROM trades "
+               "WHERE action IN ('SHADOW SELL', 'SELL')")
+        params: list = []
         if symbol:
-            c.execute(
-                "SELECT id, symbol, strategy, verdict, timestamp, amount FROM trades "
-                "WHERE action IN ('SHADOW SELL', 'SELL') AND symbol=? ORDER BY id DESC",
-                (symbol,)
-            )
-        else:
-            c.execute(
-                "SELECT id, symbol, strategy, verdict, timestamp, amount FROM trades "
-                "WHERE action IN ('SHADOW SELL', 'SELL') ORDER BY id DESC"
-            )
+            sql += " AND symbol = ?"
+            params.append(symbol)
+        if strategy:
+            sql += " AND strategy = ?"
+            params.append(strategy)
+        sql += " ORDER BY id DESC"
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        c.execute(sql, params)
         rows = c.fetchall()
         conn.close()
 
@@ -535,6 +544,10 @@ def get_closed_trades(symbol=None):
     except Exception as e:
         logger.error(f"DATABASE ERROR: Failed to get closed shadow trades: {e}")
         return []
+
+
+# Legacy alias — keep until all call sites migrate to get_closed_shadow_trades.
+get_closed_trades = get_closed_shadow_trades
 
 
 def increment_shadow_validation_trades(symbol):
