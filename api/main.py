@@ -181,6 +181,9 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] = None
 
+class RejectCandidateBody(BaseModel):
+    reason: Optional[str] = None
+
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
@@ -537,6 +540,54 @@ async def get_tuning(user: str = Depends(get_current_user)):
         }
     finally:
         conn.close()
+
+
+def _db_path_for_user(user: str) -> str:
+    """Pick the DB file path the get_db dispatch would use for this user."""
+    conn = get_db(user)
+    try:
+        return conn.execute("PRAGMA database_list").fetchone()[2]
+    finally:
+        conn.close()
+
+
+@app.get("/api/tuning/candidate/{log_id}")
+async def get_tuning_candidate(log_id: int, user: str = Depends(get_current_user)):
+    """
+    Forensic detail for a single tuning candidate: proposal record, snapshot
+    state, the trades that drove the proposal, and any trades since (counting
+    toward the shadow validation window). Powers the Tuning page's Inspect
+    modal so the operator can decide whether to reject manually or wait for the
+    validator to make the call.
+    """
+    import database as _db
+    detail = _db.get_candidate_detail(log_id, db_path=_db_path_for_user(user))
+    if detail is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    return detail
+
+
+@app.post("/api/tuning/candidate/{log_id}/reject")
+async def reject_tuning_candidate(
+    log_id: int,
+    body: RejectCandidateBody,
+    user: str = Depends(get_current_user),
+):
+    """
+    Operator-driven candidate rejection. Admin-only.
+
+    Does NOT bypass the shadow validation gate — this is the OPPOSITE of
+    bypass (manual veto BEFORE the gate completes). The 'Never bypass this
+    gate' CLAUDE.md rule is about promotion, not rejection.
+    """
+    if user == DEMO_USERNAME:
+        raise HTTPException(status_code=403, detail="Demo account is read-only")
+    import database as _db
+    ok = _db.reject_candidate(log_id, reason=body.reason, db_path=_db_path_for_user(user))
+    if not ok:
+        raise HTTPException(status_code=404, detail="candidate not found or DB error")
+    return {"status": "rejected", "log_id": log_id, "reason": body.reason}
+
 
 @app.get("/api/market")
 async def get_market(user: str = Depends(get_current_user), hours: int = 24):

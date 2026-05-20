@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import sqlite3
 import logging
@@ -118,9 +119,15 @@ def init_db():
                 metric_value           REAL,
                 trade_count            INTEGER,
                 status                 TEXT DEFAULT 'PENDING',
-                shadow_trades_required INTEGER DEFAULT 10
+                shadow_trades_required INTEGER DEFAULT 10,
+                rejection_reason       TEXT
             )
         ''')
+        # Idempotent column add for DBs predating the operator-reject feature.
+        try:
+            c.execute("ALTER TABLE tuning_log ADD COLUMN rejection_reason TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
         # Table 6: Param Snapshots — shadow validation queue
         c.execute('''
@@ -744,6 +751,157 @@ def update_tuning_status(log_id, status):
         conn.close()
     except Exception as e:
         logger.error(f"DATABASE ERROR: Failed to update tuning status for log_id {log_id}: {e}")
+
+
+# Map paradigm-path prefix → strategy name, mirroring tuner._STRAT_KEY_TO_NAME.
+# Duplicated here so database.py doesn't have to import tuner (which imports
+# database) and avoid a circular dep.
+_TUNING_STRAT_KEY_TO_NAME = {
+    'trend_following':    'TREND FOLLOWING',
+    'mean_reversion':     'MEAN REVERSION',
+    'volatility_breakout':'VOLATILITY BREAKOUT',
+    'liquidity_sweep':    'LIQUIDITY SWEEP',
+}
+
+
+def get_candidate_detail(log_id, db_path=None):
+    """
+    Returns the full forensic picture for one tuning candidate so the operator
+    can decide whether to wait, accept (via the shadow gate), or reject (this
+    function's caller). Bundles:
+      - the tuning_log row (proposal record)
+      - the matching param_snapshots row (validation queue state, if any)
+      - the trades that drove the proposal (≤ baseline_max_trade_id)
+      - the trades that have closed since the proposal (counting toward validation)
+
+    Paradigm-specific parameters (`paradigms.X.Y`) filter their trade pools to
+    only the matching strategy; cross-paradigm params (e.g. `trailing_stop_mult`)
+    show all strategies for the symbol — same logic the validator uses.
+
+    db_path: optional override so the API can route demo vs admin requests to
+    the right DB without mutating the module-level DB_PATH.
+    """
+    try:
+        conn = sqlite3.connect(db_path or DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Proposal row
+        log_row = c.execute(
+            "SELECT * FROM tuning_log WHERE id=?", (log_id,)
+        ).fetchone()
+        if not log_row:
+            conn.close()
+            return None
+        log = dict(log_row)
+
+        # Optional snapshot (deleted if the proposal was rejected pre-validation)
+        snap_row = c.execute(
+            "SELECT * FROM param_snapshots WHERE tuning_log_id=?", (log_id,)
+        ).fetchone()
+        snap = dict(snap_row) if snap_row else None
+
+        # Determine the strategy filter (if any) from the parameter path
+        param_path = log.get('parameter') or ''
+        parts = param_path.split('.')
+        strategy_filter = None
+        if len(parts) >= 3 and parts[0] == 'paradigms':
+            strategy_filter = _TUNING_STRAT_KEY_TO_NAME.get(parts[1])
+
+        symbol = log.get('symbol')
+        baseline_max_trade_id = (snap or {}).get('baseline_max_trade_id') or 0
+
+        # Driving trades: ≤ baseline_max_trade_id, optional paradigm filter,
+        # most-recent-first, capped at trade_count or 20.
+        cap = int(log.get('trade_count') or 0) or 20
+        sql = ("SELECT id, symbol, strategy, verdict, timestamp, amount "
+               "FROM trades WHERE symbol=? AND action IN ('SHADOW SELL','SELL')")
+        params = [symbol]
+        if baseline_max_trade_id:
+            sql += " AND id <= ?"
+            params.append(baseline_max_trade_id)
+        if strategy_filter:
+            sql += " AND strategy = ?"
+            params.append(strategy_filter)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(cap)
+        driving_rows = c.execute(sql, params).fetchall()
+
+        # Recent trades: > baseline_max_trade_id (validation-counting trades)
+        recent_rows = []
+        if baseline_max_trade_id:
+            sql2 = ("SELECT id, symbol, strategy, verdict, timestamp, amount "
+                    "FROM trades WHERE symbol=? AND action IN ('SHADOW SELL','SELL') "
+                    "AND id > ?")
+            params2 = [symbol, baseline_max_trade_id]
+            if strategy_filter:
+                sql2 += " AND strategy = ?"
+                params2.append(strategy_filter)
+            sql2 += " ORDER BY id DESC"
+            recent_rows = c.execute(sql2, params2).fetchall()
+
+        conn.close()
+
+        def _trade_dict(r):
+            d = dict(r)
+            # Extract pnl_pct from verdict text using the same regex the tuner uses
+            verdict = d.get('verdict') or ''
+            m = re.search(r'([+-]?\d+\.?\d*)%', verdict)
+            d['pnl_pct'] = float(m.group(1)) if m else None
+            # `amount` column stores pnl_usd on sell rows (per CLAUDE.md)
+            try:
+                d['pnl_usd'] = float(d.get('amount')) if d.get('amount') is not None else None
+            except (TypeError, ValueError):
+                d['pnl_usd'] = None
+            return d
+
+        return {
+            'log':            log,
+            'snapshot':       snap,
+            'strategy_filter': strategy_filter,
+            'driving_trades': [_trade_dict(r) for r in driving_rows],
+            'recent_trades':  [_trade_dict(r) for r in recent_rows],
+        }
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to get candidate detail for log_id {log_id}: {e}")
+        return None
+
+
+def reject_candidate(log_id, reason=None, db_path=None):
+    """
+    Operator-driven rejection of a tuning candidate. Sets tuning_log + the
+    matching param_snapshots row to REJECTED status and writes the operator's
+    reason (if provided) to tuning_log.rejection_reason.
+
+    Distinct from the automated REJECTED status the tuner sets when the metric
+    doesn't improve — the rejection_reason text is what tells them apart in
+    forensics ("operator manual" vs the absence of a reason for auto-rejection).
+
+    Returns True on success, False if the row doesn't exist or DB hiccups.
+    """
+    try:
+        conn = sqlite3.connect(db_path or DB_PATH)
+        c = conn.cursor()
+        existing = c.execute(
+            "SELECT status FROM tuning_log WHERE id=?", (log_id,)
+        ).fetchone()
+        if not existing:
+            conn.close()
+            return False
+        c.execute(
+            "UPDATE tuning_log SET status='REJECTED', rejection_reason=? WHERE id=?",
+            (reason, log_id)
+        )
+        c.execute(
+            "UPDATE param_snapshots SET status='REJECTED' WHERE tuning_log_id=?",
+            (log_id,)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"DATABASE ERROR: Failed to reject candidate {log_id}: {e}")
+        return False
 
 
 def get_tuning_summary(limit=50):

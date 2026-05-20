@@ -1,9 +1,66 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-20 (icon recolor — Sulla electric-blue to distinguish from Anton + Tiberius on home screen)
+> Last updated: 2026-05-20 (Tuning page: Inspect + Reject for candidates)
 
 ---
+
+## 2026-05-20 — Tuning page: Inspect candidate + manual Reject
+
+Cross-swarm push (Anton + Tiberius + Sulla all got this). Sulla has no
+tuning candidates yet (`tuning_log` empty — FX cycle hasn't accumulated
+enough closes per (symbol × paradigm) to trigger one), but the surface is
+in place for when it does.
+
+The Self-Tuning Monitor was read-only. Operator wanted to act on candidates
+without violating the "Never bypass this gate" rule (CLAUDE.md, non-
+negotiable for promotion). Rejection isn't bypass — the operator can veto
+a candidate they hate without needing shadow data, and rejection enters
+the same cooling-off as auto-rejection.
+
+**What landed:**
+
+- `core/database.py`:
+  - Added `re` to top-level imports.
+  - `tuning_log` CREATE TABLE now includes `rejection_reason TEXT`;
+    idempotent ALTER TABLE migration at `init_db()`.
+  - New `get_candidate_detail(log_id, db_path=None)` — bundles the
+    proposal row, snapshot row, driving trades (≤ `baseline_max_trade_id`,
+    paradigm-filtered), and recent trades.
+  - New `reject_candidate(log_id, reason=None, db_path=None)` — sets both
+    tuning_log and the matching param_snapshots row to REJECTED + writes
+    the reason. `db_path` kwarg lets the API route demo vs admin reads.
+
+- `api/main.py`:
+  - New Pydantic `RejectCandidateBody`.
+  - New `_db_path_for_user(user)` helper using `PRAGMA database_list`.
+  - `GET /api/tuning/candidate/{log_id}` — admin + demo can read.
+  - `POST /api/tuning/candidate/{log_id}/reject` — admin-only.
+
+- `web/src/components/CandidateDetailModal.jsx` (NEW) — shared modal,
+  byte-identical across Anton/Sulla/Tiberius (drift-detector parity).
+  Renders proposal summary, driving + recent trades, optional reason
+  textarea, confirm-to-reject flow. GREEN/RED are semantic (positive/
+  negative), not brand — Sulla's electric-blue header stays untouched.
+
+- `web/src/pages/Tuning.jsx`:
+  - Validation rows now clickable (preserves BLUE brand styling).
+  - History rows clickable, `title` attr surfaces `rejection_reason` on
+    hover.
+  - Modal mounts on `selectedLogId` set; refetches `/tuning` on reject.
+
+**Verified post-rebuild:**
+- Schema migration ran cleanly: `rejection_reason` column present in
+  `tuning_log` (0 rows existing, nothing to disturb).
+- `GET /api/tuning/candidate/999` → 404 (correct empty-state behavior).
+- `POST /api/tuning/candidate/999/reject` (admin) → 404 (correct, no row
+  to update). Demo-user POST returns 403 via existing dispatch.
+- All three Sulla containers healthy after rebuild.
+
+**Operator UX:** when the first FX candidate eventually fires (most likely
+on a USD-quote pair after 10 closes accumulate on one paradigm), the
+Active Shadow Validations table will show the row; click → modal opens
+with the driving trades; Reject button kills it.
 
 ## 2026-05-20 — Icon recolor: electric blue
 

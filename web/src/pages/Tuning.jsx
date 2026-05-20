@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import api from '../lib/api.js'
 import HelpTip from '../components/HelpTip.jsx'
+import CandidateDetailModal from '../components/CandidateDetailModal.jsx'
 
 const BLUE = "#3B82F6"
 
@@ -16,7 +17,7 @@ const MASTER_TIP = (
 const STATUS_TIPS = {
   SHADOW_PENDING: "Validating: the candidate value is running in shadow alongside the baseline, accumulating the 10 closed-trade window required before promotion or rejection.",
   PROMOTED_LIVE:  "Promoted: this candidate beat the baseline on Profit Factor by ≥5%. Config.yaml has been updated and the new value is now live.",
-  REJECTED:       "Rejected: validation completed but the candidate did not clear the ≥5% Profit Factor improvement threshold. Baseline remains in force.",
+  REJECTED:       "Rejected: validation completed but the candidate did not clear the ≥5% Profit Factor improvement threshold, OR the operator manually rejected it. Hover the row in History for the reason.",
   PENDING:        "Awaiting validation start — proposal logged but the shadow window has not yet begun accumulating closed trades.",
 }
 
@@ -24,10 +25,13 @@ const MIN_TRADES = 10  // per (symbol, paradigm); mirrors tuning.min_trades_to_t
 
 export default function Tuning() {
   const [data, setData] = useState({ log: [], snapshots: [], progress: [] })
+  const [selectedLogId, setSelectedLogId] = useState(null)
 
-  useEffect(() => {
+  const refetch = useCallback(() => {
     api.get('/tuning').then(r => setData(r.data))
   }, [])
+
+  useEffect(() => { refetch() }, [refetch])
 
   const statusColor = s => {
     if (s === 'PROMOTED_LIVE')   return '#4ade80'
@@ -49,18 +53,25 @@ export default function Tuning() {
       {/* Active validations */}
       {data.snapshots.length > 0 && (
         <div className="rounded-xl p-5" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
-          <h2 className="text-sm font-medium mb-4" style={{ color:'var(--text-sub)' }}>Active Shadow Validations</h2>
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-sm font-medium" style={{ color:'var(--text-sub)' }}>Active Shadow Validations</h2>
+            <HelpTip text="Click any row to inspect the trades that drove the proposal and (admin) manually reject the candidate. Manual reject does not bypass the validation gate — it short-circuits a candidate you don't want, instead of waiting for the validator to make the call." />
+          </div>
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom:'1px solid var(--border-row)' }}>
-                {['Symbol','Parameter','Candidate','Baseline','Progress'].map(h => (
+                {['Symbol','Parameter','Candidate','Baseline','Progress',''].map(h => (
                   <th key={h} className="text-left px-3 py-2 text-xs uppercase tracking-wider" style={{ color:'var(--text-muted)' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {data.snapshots.map(s => (
-                <tr key={s.id} style={{ borderBottom:'1px solid var(--border-row)' }}>
+                <tr key={s.id}
+                    style={{ borderBottom:'1px solid var(--border-row)', cursor: s.status === 'VALIDATING' ? 'pointer' : 'default' }}
+                    onClick={() => s.tuning_log_id && setSelectedLogId(s.tuning_log_id)}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-elevated)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <td className="px-3 py-2.5 font-medium" style={{ color:'var(--text-primary)' }}>{s.symbol}</td>
                   <td className="px-3 py-2.5 text-xs" style={{ color:'var(--text-sub)' }}>{s.parameter}</td>
                   <td className="px-3 py-2.5" style={{ color:BLUE, fontWeight:600 }}>{s.candidate_value}</td>
@@ -72,6 +83,9 @@ export default function Tuning() {
                       </div>
                       <span className="text-xs" style={{ color:'var(--text-muted)' }}>{s.shadow_trades_completed}/{s.shadow_trades_required}</span>
                     </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-xs" style={{ color:'var(--text-muted)' }}>
+                    {s.status === 'VALIDATING' ? 'Inspect →' : ''}
                   </td>
                 </tr>
               ))}
@@ -143,9 +157,11 @@ export default function Tuning() {
             </thead>
             <tbody>
               {data.log.map(r => (
-                <tr key={r.id} style={{ borderBottom:'1px solid var(--border-row)' }}
+                <tr key={r.id} style={{ borderBottom:'1px solid var(--border-row)', cursor:'pointer' }}
+                  onClick={() => setSelectedLogId(r.id)}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-elevated)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  title={r.rejection_reason ? `Rejection reason: ${r.rejection_reason}` : 'Click to inspect'}>
                   <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color:'var(--text-sub)' }}>{new Date(r.timestamp).toLocaleString()}</td>
                   <td className="px-4 py-3 font-medium" style={{ color:'var(--text-primary)' }}>{r.symbol}</td>
                   <td className="px-4 py-3 text-xs" style={{ color:'var(--text-sub)' }}>{r.parameter}</td>
@@ -164,6 +180,14 @@ export default function Tuning() {
           </table>
         )}
       </div>
+
+      {selectedLogId !== null && (
+        <CandidateDetailModal
+          logId={selectedLogId}
+          onClose={() => setSelectedLogId(null)}
+          onRejected={() => { setSelectedLogId(null); refetch() }}
+        />
+      )}
     </div>
   )
 }
