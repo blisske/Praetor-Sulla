@@ -1,9 +1,38 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-20 (PWA: dashboard installs as a phone app)
+> Last updated: 2026-05-20 (icon recolor — Sulla electric-blue to distinguish from Anton + Tiberius on home screen)
 
 ---
+
+## 2026-05-20 — Icon recolor: electric blue
+
+The PWA install icons for Anton, Tiberius, and Sulla were all the gold
+PraetorMark P-with-wings — visually identical on the home screen. Recolored
+each bot's `favicon.svg` to its own brand palette and regenerated the PWA
+PNG icons. Sulla is now electric blue, matching the brand color locked in
+during the Phase 3 login redesign.
+
+**Sulla: electric-blue gradient** — light `#93C5FD` → mid `#3B82F6`
+(matches the existing `--accent` in `index.css`) → dark `#1D4ED8`. Manifest
++ index.html `theme-color` were already `#3B82F6` from the original PWA
+push; no change needed there.
+
+**What landed:**
+- `web/public/favicon.svg` — three gradient stops swapped from gold
+  (`#e8b84b/#c8922a/#8a5e10`) to blue (`#93C5FD/#3B82F6/#1D4ED8`). Wing
+  strokes recolored too.
+- `web/public/{pwa-64x64,pwa-192x192,pwa-512x512,maskable-icon-512x512,
+  apple-touch-icon-180x180}.png` + `favicon.ico` — regenerated via
+  `npx @vite-pwa/assets-generator --override true`.
+
+**Sister bots got matching recolors in the same push:** Anton emerald
+(`#10B981`), Tiberius amber (`#F59E0B`).
+
+**User-side note:** an already-installed PWA will keep its cached gold icon
+until the home-screen entry is removed and the site re-installed. Long-press
+the icon → Remove → revisit `https://sulla.blisske.hopto.org` → Add to Home
+Screen.
 
 ## 2026-05-20 — PWA: dashboard installs as a phone app
 

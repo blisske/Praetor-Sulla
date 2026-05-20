@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 54 54" fill="none">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%"   stop-color="#e8b84b"/>
-      <stop offset="55%"  stop-color="#c8922a"/>
-      <stop offset="100%" stop-color="#8a5e10"/>
+      <stop offset="0%"   stop-color="#93C5FD"/>
+      <stop offset="55%"  stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
     </linearGradient>
   </defs>
 
@@ -16,11 +16,11 @@
 
   <!-- Wing lines — swept geometric feathers -->
   <path d="M10 34 C14 28, 20 24, 28 18"
-        stroke="#e8b84b" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.85"/>
+        stroke="#93C5FD" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.85"/>
   <path d="M8 38 C13 31, 21 26, 30 20"
-        stroke="#c8922a" stroke-width="1.0" fill="none" stroke-linecap="round" opacity="0.65"/>
+        stroke="#3B82F6" stroke-width="1.0" fill="none" stroke-linecap="round" opacity="0.65"/>
   <path d="M7 42 C13 35, 22 29, 32 23"
-        stroke="#c8922a" stroke-width="0.8" fill="none" stroke-linecap="round" opacity="0.45"/>
+        stroke="#3B82F6" stroke-width="0.8" fill="none" stroke-linecap="round" opacity="0.45"/>
   <path d="M8 46 C15 39, 24 33, 33 27"
-        stroke="#c8922a" stroke-width="0.6" fill="none" stroke-linecap="round" opacity="0.28"/>
+        stroke="#3B82F6" stroke-width="0.6" fill="none" stroke-linecap="round" opacity="0.28"/>
 </svg>
