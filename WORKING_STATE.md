@@ -1,9 +1,59 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-19 (4-phase trading-logic audit — 8 real bugs across the swarm, all fixed)
+> Last updated: 2026-05-20 (PWA: dashboard installs as a phone app)
 
 ---
+
+## 2026-05-20 — PWA: dashboard installs as a phone app
+
+The Sulla dashboard is now installable as a Progressive Web App. On iOS/Android,
+the browser's Install prompt or "Add to Home Screen" produces a dedicated Sulla
+icon that launches the dashboard full-screen (no URL bar, no browser tabs), and
+the shell stays cached so it loads instantly + survives a brief offline blip.
+Dashboard content unchanged — this is the phone-as-app wrapper only.
+
+**What landed:**
+- `web/public/manifest.webmanifest` — `name: "Praetor · Sulla"`,
+  `short_name: "Sulla"`, `theme_color: "#3B82F6"` (matches the electric-blue
+  brand color locked in during the Phase 3 login redesign),
+  `background_color: "#020617"`, `display: standalone`. Icons at 64/192/512 +
+  maskable 512.
+- `web/public/sw.js` — minimal service worker (~35 lines), cache key
+  `sulla-v1`. Strategy:
+  - `/api/*` and `/ws` → NetworkOnly (real-time FX cycle data, never cached)
+  - HTML navigation → NetworkFirst, fallback to cached shell when offline
+  - Everything else → CacheFirst with background revalidate
+  - `skipWaiting()` + `clients.claim()` so a deploy applies on next page load
+- `web/public/{pwa-64x64,pwa-192x192,pwa-512x512,maskable-icon-512x512,apple-touch-icon-180x180}.png`
+  + `favicon.ico` — generated from `favicon.svg` via
+  `npx --yes @vite-pwa/assets-generator@latest --preset minimal-2023 public/favicon.svg`.
+  No permanent npm dep added.
+- `web/index.html` — manifest link, apple-touch-icon, theme-color meta, iOS
+  standalone meta tags, inline SW registration.
+- `web/nginx.conf` — `location = /manifest.webmanifest` block forcing
+  `application/manifest+json` Content-Type (nginx's default mime.types serves
+  `.webmanifest` as `application/octet-stream`, which trips Lighthouse PWA checks).
+
+**Verified post-rebuild:**
+- `curl -sI http://localhost:8085/manifest.webmanifest` → 200,
+  `application/manifest+json`.
+- `curl -sI http://localhost:8085/sw.js` → 200, `application/javascript`, 1931B.
+- `curl -sI http://localhost:8085/pwa-192x192.png` → 200, `image/png`.
+- Served HTML contains all four PWA tags + #3B82F6 theme color.
+
+**Operator action to install:** open `https://sulla.blisske.hopto.org` on
+phone → share/menu → "Add to Home Screen" / "Install app". Sulla icon appears
+alongside Anton + Tiberius + Milton.
+
+**Same change landed simultaneously on Anton, Tiberius, Milton.** Cache key
+prefixed per bot.
+
+**Do not re-suggest:** service worker is intentionally minimal — no Workbox,
+no precache manifest with fingerprinted assets. NetworkFirst on HTML means
+every new deploy lands on next page open; CacheFirst on `/assets/*` is safe
+because Vite hashes those filenames. If we later want deploy-aware precaching,
+reach for `vite-plugin-pwa` then.
 
 ## 2026-05-19 — 4-phase trading-logic audit
 
