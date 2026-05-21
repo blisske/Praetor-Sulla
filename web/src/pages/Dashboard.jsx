@@ -119,7 +119,7 @@ function MarketRail({ market, symbols }) {
       <div style={{ background:'var(--bg-rail-hdr)', borderBottom:'1px solid var(--border)', padding:'8px 16px', display:'flex', alignItems:'center', gap:8 }}>
         <div style={{ width:6, height:6, borderRadius:'50%', background:'#22c55e' }} />
         <span style={{ fontSize:10, fontWeight:600, color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase' }}>
-          Sulla · Live Market Feed · Alpaca
+          Ionic · Live Market Feed · Oanda
         </span>
         <span style={{ marginLeft:'auto', fontSize:10, color:'var(--text-dim)' }}>{symbols.length} symbols</span>
       </div>

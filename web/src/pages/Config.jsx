@@ -101,7 +101,7 @@ export default function Config() {
   }
 
   const restart = async () => {
-    if (!window.confirm('Restart Sulla service now?')) return
+    if (!window.confirm('Restart Ionic service now?')) return
     setRestarting(true)
     try { await api.post('/restart'); setTimeout(() => setRestarting(false), 8000) }
     catch { setRestarting(false) }
@@ -165,13 +165,13 @@ export default function Config() {
             help="Paper trading mode — full pipeline runs but no real orders placed on Oanda. Accumulate shadow trades before going live." />
           <Toggle label="Autonomous Mode" value={strategy.autonomous_mode ?? true} onChange={v => set('strategy.autonomous_mode', v)}
             hint="When off, bot advises but does not trade"
-            help="When enabled, Sulla places orders automatically when consensus passes. When disabled, evaluates signals and logs what it would do without executing." />
+            help="When enabled, Ionic places orders automatically when consensus passes. When disabled, evaluates signals and logs what it would do without executing." />
         </Section>
 
         <Section title="Risk">
           <div className="grid grid-cols-2 gap-4">
             <Field label="Initial Capital ($)" value={risk.initial_capital} onChange={v => set('risk.initial_capital', v)} type="number" hint="Pivot reset: $10,000"
-              help="Starting portfolio value for P&L and drawdown calculations. Phase 1 reset Sulla's shadow ledger to $10K to match Tiberius scale." />
+              help="Starting portfolio value for P&L and drawdown calculations. Phase 1 reset Ionic's shadow ledger to $10K to match Corinthian scale." />
             <Field label="Risk Per Trade (%)" value={risk.risk_per_trade_pct} onChange={v => set('risk.risk_per_trade_pct', v)} type="number" hint="Target: 2% before live"
               help="Percentage of equity risked per trade. Currently 5% for paper — target 2% for first live cycle, then tune upward based on performance." />
             <Field label="Position Cap (%)" value={risk.position_size_max_pct} onChange={v => set('risk.position_size_max_pct', v)} type="number" hint="Phase 2 — was hardcoded 5%"
@@ -231,7 +231,7 @@ export default function Config() {
             help="FX's highest-volume window is the London/NY overlap. This widens the trailing stop by an ATR buffer to avoid being stopped out on normal overlap-period noise. Window is configurable via start_hour_et / end_hour_et in Config.yaml." />
         </Section>
 
-        <Section title="Macro Blackout" collapsible defaultOpen={false} badge="Sulla-specific">
+        <Section title="Macro Blackout" collapsible defaultOpen={false} badge="Ionic-specific">
           <Toggle label="Macro Blackout Enabled" value={macro.enabled ?? true} onChange={v => set('macro_blackout.enabled', v)}
             hint="Skip entries around NFP / FOMC / ECB / BoE / BoJ prints"
             help="Pulls the ForexFactory weekly JSON feed and blocks new entries on any pair whose base or quote currency has a high-impact event inside the window. Open positions exit normally." />
@@ -288,11 +288,11 @@ export default function Config() {
           </div>
         </Section>
 
-        {/* Active Symbols — unique to Sulla */}
+        {/* Active Symbols — unique to Ionic */}
         <div className="rounded-xl p-5 space-y-4 lg:col-span-2" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
           <h2 style={{ fontSize:'0.8rem', fontWeight:600, color:'var(--text-sub)', borderBottom:'1px solid var(--border-row)', paddingBottom:'0.75rem', display:'flex', alignItems:'center', gap:6 }}>
             Active Watchlist
-            <HelpTip text="FX pairs Sulla monitors and trades. Changes hot-reload at the next cycle — no restart needed. Macro blackout automatically checks the base + quote currency of each pair against the ForexFactory feed." />
+            <HelpTip text="FX pairs Ionic monitors and trades. Changes hot-reload at the next cycle — no restart needed. Macro blackout automatically checks the base + quote currency of each pair against the ForexFactory feed." />
           </h2>
           <div className="flex flex-wrap gap-2">
             {symbols.map(sym => (

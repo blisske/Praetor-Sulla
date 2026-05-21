@@ -1,7 +1,7 @@
 {
-  "name": "Praetor · Sulla",
-  "short_name": "Sulla",
-  "description": "Sulla — FX shadow trading dashboard",
+  "name": "Foundation · Ionic",
+  "short_name": "Ionic",
+  "description": "Ionic — FX shadow trading dashboard",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

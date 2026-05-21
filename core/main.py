@@ -87,7 +87,7 @@ VETO_COOLDOWN_SECONDS = 3600   # 60 min between veto notifications per (symbol, 
 # random each morning so the message doesn't get stale.
 REVEILLE_LINES = [
     # Roman / imperial (consistent with the Praetor swarm naming)
-    "The forum trades in seven tongues. Sulla listens to them all.",
+    "The forum trades in seven tongues. Ionic listens to them all.",
     "Dawn over the empire. The ledger turns.",
     "Ave, Caesar. Another orbit complete.",
     "The legions march. The pips fall in line.",
@@ -95,14 +95,14 @@ REVEILLE_LINES = [
     "Tempus fugit. The majors endure.",
     "No rest for Caesar's machine.",
     # FX-native
-    "London bid. New York offered. Sulla scanning.",
+    "London bid. New York offered. Ionic scanning.",
     "Three sessions, seven pairs, one engine.",
     "The dollar leg never sleeps. Neither do I.",
     "Twenty-four hours of liquidity. Five days of opportunity.",
     "Tokyo wakes. London takes. New York closes.",
     "The cross-currents are flowing. I'm reading the tape.",
     "Pip-by-pip, the spread between intent and execution.",
-    "Carry trades carry. Sulla follows.",
+    "Carry trades carry. Ionic follows.",
     # Wry / dry
     "Somewhere, a candle is forming. I'll know.",
     "Reveille, citizen. Coffee optional. Vigilance mandatory.",
@@ -240,7 +240,7 @@ async def _maybe_send_reveille() -> None:
     await _notify(
         f"📈 <b>DAILY REVEILLE</b>\n"
         f"{line}\n"
-        f"Sulla is ONLINE and scanning the seven majors."
+        f"Ionic is ONLINE and scanning the seven majors."
     )
     _last_reveille_day = today
 
@@ -813,7 +813,7 @@ def _auth(update: Update) -> bool:
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _auth(update): return
     msg = (
-        "📖 <b>Sulla — Command Reference</b>\n\n"
+        "📖 <b>Ionic — Command Reference</b>\n\n"
         "<b>Status &amp; Reporting</b>\n"
         "• /indicators — regime / RSI / ADX / trend for all 7 majors\n"
         "• /report — portfolio audit (equity, holdings, defense)\n"
@@ -1532,7 +1532,7 @@ async def main_async() -> None:
         await app.bot.send_message(
             chat_id=telegram_user,
             text=(
-                "📈 <b>Sulla (FX) ONLINE</b>\n"
+                "📈 <b>Ionic (FX) ONLINE</b>\n"
                 "Connected to Oanda Practice. Shadow mode.\n"
                 "Send /help for the command list."
             ),

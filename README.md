@@ -1,8 +1,8 @@
 # Praetor · Sulla
 
 Autonomous **long-only spot FX** trading bot. Third instance of the Praetor
-swarm, alongside [Anton](https://github.com/blisske/Praetor-Anton) (TradFi
-equities) and [Tiberius](https://github.com/blisske/Praetor) (crypto).
+swarm, alongside [Anton](https://github.com/blisske/Foundation-Doric) (TradFi
+equities) and [Tiberius](https://github.com/blisske/Foundation-Corinthian) (crypto).
 
 ## Status
 
@@ -79,5 +79,5 @@ FX-specific differences:
 
 ## Sibling repos
 
-- [Praetor-Anton](https://github.com/blisske/Praetor-Anton) — TradFi equities (Alpaca)
-- [Praetor](https://github.com/blisske/Praetor) — crypto (Kraken / Tiberius)
+- [Praetor-Anton](https://github.com/blisske/Foundation-Doric) — TradFi equities (Alpaca)
+- [Praetor](https://github.com/blisske/Foundation-Corinthian) — crypto (Kraken / Tiberius)

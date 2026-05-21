@@ -1,6 +1,6 @@
 import { BookOpen, Compass, Layers, Filter, Shield, FlaskConical, LayoutDashboard, MessageSquare, ListChecks, Library, CalendarClock, Globe2 } from 'lucide-react'
 
-const BLUE   = '#3B82F6'   // Sulla brand accent (sections, primary, Trend Following)
+const BLUE   = '#3B82F6'   // Ionic brand accent (sections, primary, Trend Following)
 const GREEN  = '#34d399'   // semantic — Mean Reversion paradigm
 const AMBER  = '#fbbf24'   // semantic — Liquidity Sweep paradigm, drawdown Alert
 const RED    = '#f87171'   // semantic — drawdown Halt
@@ -34,10 +34,10 @@ const Code = ({ children }) => (
 
 // ─── Section 1 — Overview ───────────────────────────────────────────────────
 const Section1 = () => (
-  <Card id="overview" icon={Compass} title="What Sulla does"
+  <Card id="overview" icon={Compass} title="What Ionic does"
         subtitle="The 30-second elevator pitch.">
     <p>
-      <strong style={{ color: 'var(--text-primary)' }}>Sulla is an autonomous, long-only spot FX trader</strong> that
+      <strong style={{ color: 'var(--text-primary)' }}>Ionic is an autonomous, long-only spot FX trader</strong> that
       runs on the Oanda v20 REST API across the seven major currency pairs.
       It scans every 5 minutes around the 1-hour bar, makes its own entry
       decisions, places its own protective stops, and exits on either a
@@ -46,14 +46,14 @@ const Section1 = () => (
     </p>
     <p>
       <strong style={{ color: 'var(--text-primary)' }}>Unleveraged by design.</strong> Oanda offers retail leverage up to
-      50:1 in the US; Sulla deliberately ignores it. Position sizing math
+      50:1 in the US; Ionic deliberately ignores it. Position sizing math
       treats your equity as the hard ceiling, so a $10,000 account can hold
       at most $10,000 of notional exposure across all open positions. Smaller
       positions for the same percent risk, slower compounding, but the tail
       risk that broke many an FX retail account is permanently capped.
     </p>
     <p>
-      Right now Sulla is in <Tag>SHADOW MODE</Tag> — every decision the live
+      Right now Ionic is in <Tag>SHADOW MODE</Tag> — every decision the live
       engine would have made is recorded as a "paper" trade in the database,
       with full P&amp;L accounting against a synthetic $10,000 ledger, and no
       Oanda orders are placed. The shadow log is the validation gate before
@@ -62,10 +62,10 @@ const Section1 = () => (
       yet).
     </p>
     <p>
-      Sulla is the FX sibling of two other Praetor instances:
-      <strong style={{ color: 'var(--text-primary)' }}> Anton</strong> (TradFi
+      Ionic is the FX sibling of two other Foundation instances:
+      <strong style={{ color: 'var(--text-primary)' }}> Doric</strong> (TradFi
       equities on Alpaca, US session-bound) and
-      <strong style={{ color: 'var(--text-primary)' }}> Tiberius</strong>
+      <strong style={{ color: 'var(--text-primary)' }}> Corinthian</strong>
       (crypto on Kraken, 24/7). All three share the same 4-paradigm signal
       engine + 2+1+1 consensus + self-tuner architecture; they diverge only
       where the asset class forces them to (broker, hours, sizing units,
@@ -104,9 +104,9 @@ const PairCard = ({ tag, name, nickname, character, color }) => (
 
 const Section2 = () => (
   <Card id="universe" icon={Globe2} title="The seven majors"
-        subtitle="Sulla's universe. Six of the seven involve USD.">
+        subtitle="Ionic's universe. Six of the seven involve USD.">
     <p>
-      Sulla trades the seven currency pairs that, between them, account for
+      Ionic trades the seven currency pairs that, between them, account for
       ~85% of daily FX volume. Six of them have USD on one side, which means
       almost any US macro print (NFP, CPI, FOMC) ripples through the entire
       watchlist simultaneously — context that drives the macro-blackout
@@ -165,7 +165,7 @@ const Section3 = () => (
   <Card id="paradigms" icon={Layers} title="The four trading paradigms"
         subtitle="Each paradigm has a different thesis and only activates when market conditions match.">
     <p>
-      Before any paradigm runs, Sulla asks one question:
+      Before any paradigm runs, Ionic asks one question:
       <strong> is the market trending or ranging?</strong> It uses ADX
       (Average Directional Index) — a momentum-strength gauge — to decide.
       The threshold is configurable per pair (defaults to 30). Above it:
@@ -210,7 +210,7 @@ const Section3 = () => (
       <ParadigmCard
         tag="C" name="Volatility Breakout" color={CYAN}
         fires="Bollinger Band Width compressed (squeeze) + price pierces upper band + strong RSI surge"
-        thesis='"Catch the explosion out of a coiled spring." Fires in either regime — when volatility has been suppressed and is about to expand. Common around central-bank decision windows (where Sulla is already gated by the macro blackout, by design).'
+        thesis='"Catch the explosion out of a coiled spring." Fires in either regime — when volatility has been suppressed and is about to expand. Common around central-bank decision windows (where Ionic is already gated by the macro blackout, by design).'
       />
       <ParadigmCard
         tag="D" name="Liquidity Sweep" color={AMBER}
@@ -222,11 +222,11 @@ const Section3 = () => (
     <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
       Each paradigm has its own entry RSI threshold, configurable per pair
       via <Code>strategy.symbol_overrides</Code> in <Code>Config.yaml</Code>.
-      The paradigm logic is identical to Anton (TradFi) and Tiberius (crypto)
+      The paradigm logic is identical to Doric (TradFi) and Corinthian (crypto)
       — the underlying math doesn't care whether it's looking at AAPL bars or
       BTC bars or EUR/USD bars. What changes per asset class is the bar
-      timeframe (Sulla uses 1h), session bounds (FX is 24/5), and event
-      blackouts (Sulla uses macro releases, see <a href="#blackout" className="underline" style={{ color: BLUE }}>§8</a>).
+      timeframe (Ionic uses 1h), session bounds (FX is 24/5), and event
+      blackouts (Ionic uses macro releases, see <a href="#blackout" className="underline" style={{ color: BLUE }}>§8</a>).
     </p>
   </Card>
 )
@@ -248,7 +248,7 @@ const Section4 = () => (
   <Card id="consensus" icon={Filter} title="The 2+1+1 consensus"
         subtitle="Why no single signal can fire a trade.">
     <p>
-      Sulla doesn't trade on a single indicator. Every potential entry has to
+      Ionic doesn't trade on a single indicator. Every potential entry has to
       clear <strong>four independent layers</strong>. If any layer disagrees
       strongly enough, the trade is aborted and logged with the reason.
     </p>
@@ -302,9 +302,9 @@ const Tier = ({ pct, label, action, color }) => (
 
 const Section5 = () => (
   <Card id="risk" icon={Shield} title="Risk management"
-        subtitle="Where Sulla will and won't take pain.">
+        subtitle="Where Ionic will and won't take pain.">
     <p>
-      Sulla is growth-focused but disciplined. Three knobs cover the bulk of
+      Ionic is growth-focused but disciplined. Three knobs cover the bulk of
       position-level risk; a tiered drawdown ladder covers account-level risk;
       the macro blackout covers tail-event risk.
     </p>
@@ -341,7 +341,7 @@ const Section5 = () => (
       Random ATR-distance whip-saws are most likely here, so during this window the trailing-stop
       multiplier widens by an extra <Code>0.3</Code> ATR to avoid being shaken out on normal
       overlap-period noise. Configurable via <Code>ratchet.power_hour_defense</Code> in Config.yaml
-      (the inherited name from Anton's NYSE Power Hour pattern). Outside the window, base
+      (the inherited name from Doric's NYSE Power Hour pattern). Outside the window, base
       multiplier applies.
     </p>
 
@@ -353,12 +353,12 @@ const Section5 = () => (
     </div>
 
     <div className="rounded-lg p-4 my-4" style={{ background: BLUE + '11', border: `1px solid ${BLUE}44` }}>
-      <div className="text-xs uppercase tracking-wider mb-2" style={{ color: BLUE }}>Sulla-specific: unleveraged spot</div>
+      <div className="text-xs uppercase tracking-wider mb-2" style={{ color: BLUE }}>Ionic-specific: unleveraged spot</div>
       <p className="text-xs">
-        Oanda offers retail leverage up to 50:1 in the US. Sulla deliberately
+        Oanda offers retail leverage up to 50:1 in the US. Ionic deliberately
         runs <strong>unleveraged 1:1</strong>: position notional cannot exceed
-        equity. This matches the no-margin discipline of Tiberius (spot crypto)
-        and Anton (cash account, no margin) — the entire Praetor swarm is
+        equity. This matches the no-margin discipline of Corinthian (spot crypto)
+        and Doric (cash account, no margin) — the entire Foundation swarm is
         designed around "you can lose what you bet but not more than you bet."
         Smaller positions for the same percent risk, slower compounding, but
         margin-call risk and forced-liquidation risk are permanently absent.
@@ -433,7 +433,7 @@ const Section6 = () => (
 
     <p>
       <strong style={{ color: 'var(--text-primary)' }}>Why patience is required.</strong> Each proposal needs ~10 trades to validate.
-      Sulla's universe is small (7 majors × 4 paradigms = <strong>28 tuning slots</strong>)
+      Ionic's universe is small (7 majors × 4 paradigms = <strong>28 tuning slots</strong>)
       so the per-slot trade pace is roughly 1 trade per week per slot. A
       single parameter change typically validates over <strong>2–3 weeks</strong>.
       A complete optimization sweep across the universe is a <strong>6–12 month</strong>
@@ -501,10 +501,10 @@ const Section7 = () => (
   </Card>
 )
 
-// ─── Section 8 — Macro blackout (NEW for Sulla) ─────────────────────────────
+// ─── Section 8 — Macro blackout (NEW for Ionic) ─────────────────────────────
 const Section8 = () => (
   <Card id="blackout" icon={CalendarClock} title="Macro-event blackout"
-        subtitle="How Sulla dodges the prints that blow through stops.">
+        subtitle="How Ionic dodges the prints that blow through stops.">
     <p>
       Single-event macro releases routinely produce stop-hunting volatility
       that no ATR-based stop can withstand. NFP is the textbook case — a
@@ -513,7 +513,7 @@ const Section8 = () => (
       conditions and perfectly useless against a print like that.
     </p>
     <p>
-      Sulla's macro-blackout layer blocks new entries on any pair whose base
+      Ionic's macro-blackout layer blocks new entries on any pair whose base
       OR quote currency has a high-impact event in the configured window. We
       let the print land, the dust settle, then resume scanning.
     </p>
@@ -644,7 +644,7 @@ const Section10 = () => (
       />
       <Scenario color={GREEN}
         when="You want to manually buy a pair"
-        then={<>Telegram: <Code>/buy EUR/USD 1000</Code> (pair, USD notional). Sulla takes the trade at the current market and immediately places an ATR×2 stop. The trade is recorded with paradigm = "MANUAL OVERRIDE" so the tuner doesn't pick it up. Pair format is flexible: <Code>EURUSD</Code> / <Code>eur_usd</Code> / <Code>EUR/USD</Code> all work.</>}
+        then={<>Telegram: <Code>/buy EUR/USD 1000</Code> (pair, USD notional). Ionic takes the trade at the current market and immediately places an ATR×2 stop. The trade is recorded with paradigm = "MANUAL OVERRIDE" so the tuner doesn't pick it up. Pair format is flexible: <Code>EURUSD</Code> / <Code>eur_usd</Code> / <Code>EUR/USD</Code> all work.</>}
       />
       <Scenario color={CYAN}
         when="A position is running hot and you want to lock in profit"
@@ -656,7 +656,7 @@ const Section10 = () => (
       />
       <Scenario color={BLUE}
         when="You want to add or drop a pair from the universe"
-        then={<>Edit <Code>strategy.active_symbols</Code> in <Code>Config.yaml</Code> via the Config page. Sulla hot-reloads the watchlist each cycle — no restart needed. Adding non-USD crosses (EUR/JPY, GBP/JPY etc.) works for indicator + signal evaluation today, but position sizing for them is gated by <Code>fx_math.pip_value_usd</Code> which needs USD-leg conversion (planned addition).</>}
+        then={<>Edit <Code>strategy.active_symbols</Code> in <Code>Config.yaml</Code> via the Config page. Ionic hot-reloads the watchlist each cycle — no restart needed. Adding non-USD crosses (EUR/JPY, GBP/JPY etc.) works for indicator + signal evaluation today, but position sizing for them is gated by <Code>fx_math.pip_value_usd</Code> which needs USD-leg conversion (planned addition).</>}
       />
       <Scenario color={GREEN}
         when="The flip from Shadow to Live (Oanda practice → real)"
@@ -700,20 +700,20 @@ const Section11 = () => (
         </Term>
         <Term term="Pipette">
           One-tenth of a pip — the 5th decimal on majors (or 3rd on JPY pairs).
-          Modern brokers including Oanda quote at pipette precision; Sulla's
+          Modern brokers including Oanda quote at pipette precision; Ionic's
           stop math uses pipettes internally and displays at pip precision.
         </Term>
         <Term term="Lot">
           Standard FX position-size unit. <strong>Standard lot</strong> = 100,000 units
           of base currency. <strong>Mini lot</strong> = 10,000. <strong>Micro lot</strong> = 1,000.
-          Oanda accepts down to 1 unit, so Sulla sizes in raw units (not lots)
+          Oanda accepts down to 1 unit, so Ionic sizes in raw units (not lots)
           for flexibility. A pip of EUR/USD at 10,000 units is worth $1; at
           100,000 units it's $10.
         </Term>
         <Term term="Base / Quote currency">
           For pair <strong>EUR/USD</strong>: EUR is the <em>base</em>, USD is
           the <em>quote</em>. Price 1.0823 means 1 EUR = 1.0823 USD. Going
-          "long EUR/USD" means buying EUR with USD. For Sulla's universe, six
+          "long EUR/USD" means buying EUR with USD. For Ionic's universe, six
           of the seven pairs have USD as either base or quote — see <a href="#universe"
           className="underline" style={{ color: BLUE }}>§2</a>.
         </Term>
@@ -725,7 +725,7 @@ const Section11 = () => (
         </Term>
         <Term term="Long-only spot">
           Buying the actual base currency (paying in the quote currency), as
-          opposed to derivatives (futures, forwards, options). Sulla is
+          opposed to derivatives (futures, forwards, options). Ionic is
           spot-only and long-only — no leverage, no shorts, no derivatives.
         </Term>
         <Term term="USD-quote vs USD-base pair">
@@ -733,7 +733,7 @@ const Section11 = () => (
           <em>quote</em>, so a position's notional is denominated in USD
           directly. USD-base pairs (USD/JPY, USD/CHF, USD/CAD): USD is the
           <em>base</em>, so position size is in USD and pip value needs to
-          be converted back through the current rate. Sulla's
+          be converted back through the current rate. Ionic's
           <Code>fx_math.pip_value_usd()</Code> handles both cases.
         </Term>
         <Term term="Weekend gap">
@@ -748,12 +748,12 @@ const Section11 = () => (
         <Term term="Average Directional Index" abbr="ADX (14)">
           A 0–100 gauge of <em>trend strength</em> (not direction). Above
           25–30 means a real trend is in place; below means the market is
-          ranging or chopping. Sulla uses ADX as the regime gate to route
+          ranging or chopping. Ionic uses ADX as the regime gate to route
           signals to the right paradigm.
         </Term>
         <Term term="Average True Range" abbr="ATR (14)">
           The average size of a candle's high-to-low range over the lookback
-          window — a measure of recent volatility in price units. All Sulla
+          window — a measure of recent volatility in price units. All Ionic
           stops and trailing distances are set as multiples of ATR so they
           scale automatically with the pair's volatility.
         </Term>
@@ -785,7 +785,7 @@ const Section11 = () => (
           Monthly US jobs report, released first Friday of each month at
           08:30 ET. The single biggest USD mover on the calendar. Routinely
           produces 80–150 pip moves on EUR/USD in the first 60 seconds.
-          Sulla blocks all USD-leg entries 60 min before / 120 min after.
+          Ionic blocks all USD-leg entries 60 min before / 120 min after.
         </Term>
         <Term term="FOMC meeting" abbr="Federal Open Market Committee">
           Eight times a year. Rate decision at 14:00 ET, Powell press
@@ -812,7 +812,7 @@ const Section11 = () => (
         <Term term="ForexFactory feed">
           The hand-curated weekly macro-events calendar at
           <Code>nfs.faireconomy.media/ff_calendar_thisweek.json</Code>.
-          Free, no auth, ~8 years stable. The data source for Sulla's
+          Free, no auth, ~8 years stable. The data source for Ionic's
           macro-blackout layer.
         </Term>
       </TermGroup>
@@ -820,7 +820,7 @@ const Section11 = () => (
       <TermGroup title="System concepts" color={GREEN}>
         <Term term="Paradigm">
           A self-contained trading thesis with its own entry conditions, exit
-          logic, and risk profile. Sulla runs four: Trend Following, Mean
+          logic, and risk profile. Ionic runs four: Trend Following, Mean
           Reversion, Volatility Breakout, Liquidity Sweep.
           See <a href="#paradigms" className="underline" style={{ color: BLUE }}>§3</a>.
         </Term>
@@ -841,7 +841,7 @@ const Section11 = () => (
           down sharply.
         </Term>
         <Term term="Watchlist / universe">
-          The set of pairs Sulla is currently scanning. Default: 7 majors.
+          The set of pairs Ionic is currently scanning. Default: 7 majors.
           Defined as <Code>strategy.active_symbols</Code> in
           <Code>Config.yaml</Code> and hot-reloaded every cycle.
         </Term>
@@ -857,7 +857,7 @@ const Section11 = () => (
         </Term>
         <Term term="Correlation-aware sizing">
           Optional risk feature that reduces position size when other
-          correlated positions are already open. Sulla's buckets group pairs
+          correlated positions are already open. Ionic's buckets group pairs
           by USD-leg direction (USD_short: EUR/USD, GBP/USD, etc.;
           USD_long: USD/JPY, USD/CHF, etc.) — three USD_short longs are
           functionally one big short-USD bet, not three independent bets.
@@ -880,7 +880,7 @@ const Section11 = () => (
         </Term>
         <Term term="Live mode (planned)">
           Real Oanda practice-account orders. The opposite of shadow mode.
-          Sulla is not in this state yet — the deployment gates need to
+          Ionic is not in this state yet — the deployment gates need to
           clear first. <Code>execution.execute_buy_with_stop</Code> currently
           raises NotImplementedError; Phase 6 fills in the Oanda order
           submission against this same interface.
@@ -906,26 +906,26 @@ const Section11 = () => (
         </Term>
       </TermGroup>
 
-      <TermGroup title="Praetor / stack" color={CYAN}>
-        <Term term="Praetor">
-          The platform — the React + FastAPI + Python stack that hosts Anton
-          (TradFi), Tiberius (crypto), and Sulla (FX). What gets distributed.
+      <TermGroup title="Foundation / stack" color={CYAN}>
+        <Term term="Foundation">
+          The platform — the React + FastAPI + Python stack that hosts Doric
+          (TradFi), Corinthian (crypto), and Ionic (FX). What gets distributed.
         </Term>
-        <Term term="Sulla">
+        <Term term="Ionic">
           The FX trading instance. Runs on Oanda v20 REST. This system.
         </Term>
-        <Term term="Anton">
+        <Term term="Doric">
           The TradFi sibling. Long-only US equities on Alpaca paper. Session-
           bound (9:30 AM–4:00 PM ET) with earnings blackouts. Separate repo
-          at <Code>blisske/Praetor-Anton</Code>.
+          at <Code>blisske/Foundation-Doric</Code>.
         </Term>
-        <Term term="Tiberius">
+        <Term term="Corinthian">
           The crypto sibling. Long-only spot on Kraken via CCXT. 24/7 with
           no calendar blackouts. Separate repo at
-          <Code>blisske/Praetor</Code>.
+          <Code>blisske/Foundation-Corinthian</Code>.
         </Term>
         <Term term="Oanda">
-          The FX broker Sulla trades through. Currently using the practice
+          The FX broker Ionic trades through. Currently using the practice
           account (free, unlimited). API access via direct v20 REST calls
           (no SDK dependency).
         </Term>
@@ -935,8 +935,8 @@ const Section11 = () => (
         </Term>
         <Term term="Battlemage">
           The host machine — Windows 11 + WSL2 + Docker Desktop. LAN IP
-          192.168.0.135. Runs the Praetor swarm containers (Anton, Tiberius,
-          Sulla) and LM Studio side-by-side. Intel Arc Pro B70 GPU.
+          192.168.0.135. Runs the Foundation swarm containers (Doric, Corinthian,
+          Ionic) and LM Studio side-by-side. Intel Arc Pro B70 GPU.
         </Term>
         <Term term="Brave Search">
           The news/sentiment data source the AI brain queries when forming
@@ -952,7 +952,7 @@ const Section11 = () => (
 
 // ─── TOC sidebar ────────────────────────────────────────────────────────────
 const TOC_ITEMS = [
-  { id: 'overview',  label: '1. What Sulla does',         icon: Compass },
+  { id: 'overview',  label: '1. What Ionic does',         icon: Compass },
   { id: 'universe',  label: '2. The seven majors',        icon: Globe2 },
   { id: 'paradigms', label: '3. The four paradigms',      icon: Layers },
   { id: 'consensus', label: '4. The 2+1+1 consensus',     icon: Filter },
@@ -971,7 +971,7 @@ export default function Guide() {
     <div className="p-6">
       <div className="flex items-center gap-2 mb-1">
         <BookOpen size={20} style={{ color: BLUE }} />
-        <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Sulla Guide</h1>
+        <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Ionic Guide</h1>
       </div>
       <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
         How the FX system works, what each number means, and what to do when

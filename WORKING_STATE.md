@@ -1,7 +1,49 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-20 (Tuning page: Inspect + Reject for candidates)
+> Last updated: 2026-05-21 (Foundation brand pass)
+
+---
+
+## 2026-05-21 — Foundation brand pass
+
+Cross-swarm rebrand. Platform "Praetor" → "Foundation"; bots renamed to column orders — Anton → **Doric**, Tiberius → **Corinthian**, Sulla → **Ionic** (this codebase). User-visible surface only — containers, DBs, GitHub repo, env vars all stay as-is.
+
+**What landed (Ionic / this codebase):**
+
+- `web/index.html`, `web/public/manifest.webmanifest` — `<title>` and PWA name/short_name/description renamed.
+- `web/public/favicon.svg` + `.ico` + `pwa-{64,192,512}*.png` + `maskable-icon-512x512.png` + `apple-touch-icon-180x180.png` — gold winged-P retired. New mark is the **Ionic column capital** (abacus + twin volutes + egg-and-dart band + fluted shaft) in electric-blue gradient (`#93C5FD → #3B82F6 → #1D4ED8`). PNGs and multi-res `.ico` rendered from the new SVG via a one-shot `nginx:alpine` container with `imagemagick` + `librsvg` apk'd at runtime. Reusable script at `/tmp/regen-favicons.sh`.
+- `web/src/components/Layout.jsx` — local `PraetorMark` function renamed to `FoundationMark` and rewritten to render the Ionic capital (with the volutes enlarged to dominate the viewBox after a follow-up sizing tweak). Sidebar wordmark `PRAETOR` → `FOUNDATION`; subtitle `Sulla · FX` → `Ionic · FX`. Same in the mobile topbar.
+- `web/src/pages/Login.jsx` — `FoundationMark` glyph; wordmark/subtitle/body copy renamed (`SULLA · TRADFI` → `IONIC · FX`, also fixing the legacy "TRADFI" copy-paste from the Anton fork; "Sign in to your Sulla trading dashboard." → "...Ionic..."). Top-left right-panel label `Praetor` → `Foundation`; top-right `Sulla · FX` → `Ionic · FX`. Right-panel currency-glyph and multi-pair chart decorations were already blue-themed — no recolor needed.
+- `web/src/pages/Dashboard.jsx` — market-feed strip `Sulla · Live Market Feed · Alpaca` → `Ionic · Live Market Feed · Oanda` (also fixing a stale Anton-fork copy-paste — Ionic uses Oanda, not Alpaca).
+- `web/src/pages/Config.jsx` — every bot-name reference in tooltip help text and `X-specific` badges renamed (Sulla → Ionic, plus the cross-reference Tiberius → Corinthian).
+- `web/src/pages/Guide.jsx` — prose-wide rename (Sulla → Ionic, Anton → Doric, Tiberius → Corinthian, Praetor → Foundation), preserving code identifiers — `blisske/Foundation-Ionic` GitHub URL, container names, `~/swarm/sulla/` paths, DB filenames. Done by a delegated general-purpose agent with explicit preservation rules.
+- `core/main.py` — Telegram surface: boot greeting `📈 Sulla (FX) ONLINE` → `📈 Ionic (FX) ONLINE`; `/help` header `📖 Sulla — Command Reference` → `📖 Ionic — Command Reference`; daily heartbeat "Sulla is ONLINE and scanning the seven majors." → "Ionic..."; reveille flavor lines `"The forum trades in seven tongues. Sulla listens to them all."` / `"London bid. New York offered. Sulla scanning."` / `"Carry trades carry. Sulla follows."` → Ionic equivalents (rest of the Roman/imperial flavor lines kept verbatim — they still fit the broader classical theme).
+
+**Foundation landing page (NEW, swarm-level — not Ionic-specific):**
+
+- `~/swarm/foundation/index.html` + `~/swarm/foundation/docker-compose.yml` — `foundation-web` (nginx:alpine bind-mounting `index.html` read-only). Included from the swarm-root compose.
+- `~/swarm/proxy/dynamic/foundation.yml` — Traefik route binding `Host("blisske.hopto.org")` (the apex) → `foundation-web:80` with Let's Encrypt. Three clickable order cards (Doric / Ionic / Corinthian) link to each bot's dashboard.
+
+**Hostname migration (alias mode):**
+
+- `~/swarm/proxy/dynamic/sulla.yml` — Host rule extended to match `ionic.blisske.hopto.org` (new primary) AND `sulla.blisske.hopto.org` (legacy alias). Fresh Let's Encrypt cert issued for the Ionic name (valid through 2026-08-19). Foundation landing card href repointed to the new URL. Drop the `Host("sulla.…")` clause after ~30 days when bookmarks have settled.
+
+**Operator action still required (BotFather, off-host):**
+
+Telegram bot Name / About / Description live on Telegram's servers and can only be edited via `@BotFather` chat — not changeable via API. Suggested text:
+
+- Name: `Foundation · Ionic`
+- About: `Autonomous FX trading. Foundation swarm — Ionic capital.`
+- Description: `Ionic is the FX arm of the Foundation swarm — an autonomous 24/5 trading bot running on Oanda v20. 4-paradigm signal engine with 2+1+1 consensus gate, AI verdict layer, macro-event blackout across the seven majors. Use /help for the command reference.`
+
+Until pasted into BotFather, the Telegram client's contact list still shows the old display name even though every message the bot sends says "Ionic."
+
+**Not renamed (intentionally — infrastructure-internal):**
+
+`sulla-engine` / `sulla-api` / `sulla-web` containers, `sulla-net` network, `sulla.db` (+ WAL sidecars), `~/swarm/sulla/` bind-mount path, Python module names, env vars, function names, all stdout log messages. High blast radius (Traefik routes, nginx config, env vars, runbook commands, CI/CD) and zero user benefit — the brand-visible layer was the goal; the plumbing stays.
+
+**Postscript (later 2026-05-21):** Follow-up pass renamed the GitHub repo too — `blisske/Praetor-Sulla` → `blisske/Foundation-Ionic` — via the REST API (operator-provided PAT, single-use, revoked after). Local `origin` remote updated. GitHub's permanent redirects keep the old clone URL working indefinitely. All in-code references (`CLAUDE.md`, `README.md`, `Guide.jsx`, and the cross-references in the Doric and Corinthian repos) updated to the new URL in the same sweep.
 
 ---
 

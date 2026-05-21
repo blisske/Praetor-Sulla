@@ -8,23 +8,33 @@ const NAVY     = '#0b1526'
 const BLUE     = '#3B82F6'   // Sulla brand accent
 const BLUE_LT  = '#60A5FA'
 
-function PraetorMark({ size = 28 }) {
+// Ionic column capital — same glyph as the sidebar, scaled for the login wordmark.
+function FoundationMark({ size = 28 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 54 54" fill="none" style={{ flexShrink: 0 }}>
       <defs>
-        <linearGradient id="pgL" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%"   stopColor={GOLD_LT} />
-          <stop offset="55%"  stopColor={GOLD} />
-          <stop offset="100%" stopColor="#6B4C10" />
+        <linearGradient id="ionicGradLogin" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="#93C5FD" />
+          <stop offset="55%"  stopColor="#3B82F6" />
+          <stop offset="100%" stopColor="#1D4ED8" />
         </linearGradient>
       </defs>
-      <rect x="14" y="8" width="5" height="38" rx="2" fill="url(#pgL)" />
-      <path d="M18 8 Q40 8 40 19 Q40 30 18 30"
-        stroke="url(#pgL)" strokeWidth="4.5" fill="none" strokeLinecap="round" />
-      <path d="M10 34 C14 28,20 24,28 18" stroke={GOLD_LT} strokeWidth="1.8"
-        fill="none" strokeLinecap="round" opacity="0.9" />
-      <path d="M8 38 C13 31,21 26,30 20" stroke={GOLD} strokeWidth="1.3"
-        fill="none" strokeLinecap="round" opacity="0.6" />
+      <rect x="2"  y="3"  width="50" height="3"  fill="url(#ionicGradLogin)" />
+      <rect x="10" y="6"  width="34" height="12" fill="url(#ionicGradLogin)" />
+      <circle cx="10" cy="12" r="9" fill="url(#ionicGradLogin)" />
+      <circle cx="10" cy="12" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="10" cy="12" r="2" fill="url(#ionicGradLogin)" />
+      <circle cx="44" cy="12" r="9" fill="url(#ionicGradLogin)" />
+      <circle cx="44" cy="12" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="44" cy="12" r="2" fill="url(#ionicGradLogin)" />
+      <rect x="13" y="20" width="28" height="2.5" fill="#1D4ED8" opacity="0.65" />
+      <rect x="19" y="24" width="16" height="3"  fill="#1D4ED8" />
+      <rect x="17" y="27" width="20" height="23" fill="url(#ionicGradLogin)" />
+      <line x1="20" y1="27" x2="20" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="24" y1="27" x2="24" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="27" y1="27" x2="27" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="30" y1="27" x2="30" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="34" y1="27" x2="34" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
     </svg>
   )
 }
@@ -261,16 +271,16 @@ export default function Login() {
 
         {/* Wordmark */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '52px' }}>
-          <PraetorMark size={44} />
+          <FoundationMark size={44} />
           <div>
             <span style={{
               fontSize: '26px', fontWeight: 800, letterSpacing: '0.18em',
               color: NAVY, lineHeight: 1,
-            }}>PRAETOR</span>
+            }}>FOUNDATION</span>
             <span style={{
               display: 'block', fontSize: '12px', letterSpacing: '0.16em',
-              color: GOLD, marginTop: '4px',
-            }}>SULLA · TRADFI</span>
+              color: BLUE, marginTop: '4px',
+            }}>IONIC · FX</span>
           </div>
         </div>
 
@@ -281,7 +291,7 @@ export default function Login() {
             Welcome back
           </h1>
           <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
-            Sign in to your Sulla trading dashboard.
+            Sign in to your Ionic trading dashboard.
           </p>
         </div>
 
@@ -363,7 +373,7 @@ export default function Login() {
           fontSize: '13px', fontWeight: 600, letterSpacing: '0.18em',
           color: 'rgba(200,146,42,0.70)', textTransform: 'uppercase',
         }}>
-          Praetor
+          Foundation
         </div>
 
         {/* Top-right Sulla mark — distinguishes from Anton/Tiberius without
@@ -376,7 +386,7 @@ export default function Login() {
             fontSize: '11px', fontWeight: 700, letterSpacing: '0.22em',
             color: BLUE_LT, textTransform: 'uppercase',
           }}>
-            Sulla · FX
+            Ionic · FX
           </span>
           <span style={{
             width: '24px', height: '2px',

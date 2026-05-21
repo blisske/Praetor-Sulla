@@ -1,4 +1,4 @@
-# CLAUDE.md — Sulla / Praetor FX Project Context
+# CLAUDE.md — Ionic / Foundation FX Project Context
 
 > This file gives Claude Code the authoritative context for working on this project.
 > Read this file first, then `WORKING_STATE.md` for current state.
@@ -7,15 +7,15 @@
 
 ## Project Identity
 
-**Praetor** is the platform. Three trading instances live under it:
+**Foundation** is the platform. Three trading instances live under it:
 
 | Instance | Role | Status |
 |---|---|---|
-| **Anton** | TradFi — Alpaca paper | Shadow mode, live deployment gates open |
-| **Tiberius** | Crypto — Kraken | Shadow mode, live deployment gates open |
-| **Sulla** | FX — Oanda | **Phase 1 scaffold** (this codebase) |
+| **Doric** | TradFi — Alpaca paper | Shadow mode, live deployment gates open |
+| **Corinthian** | Crypto — Kraken | Shadow mode, live deployment gates open |
+| **Ionic** | FX — Oanda | **Phase 1 scaffold** (this codebase) |
 
-This codebase is **Sulla** specifically. All three bots run as Docker containers
+This codebase is **Ionic** specifically. All three bots run as Docker containers
 on the WSL2 host `battlemage` (LAN `192.168.0.135`), orchestrated by the
 swarm-root compose at `~/swarm/docker-compose.yml`.
 
@@ -24,12 +24,12 @@ swarm-root compose at `~/swarm/docker-compose.yml`.
 ## Project Goal
 
 Autonomous long-only spot FX trading bot designed to fill the time-zone gap
-left by Anton (US-equity session) and Tiberius (crypto). Trades the 7 major
+left by Doric (US-equity session) and Corinthian (crypto). Trades the 7 major
 currency pairs unleveraged via Oanda's v20 REST API.
 
 **Mandate:** consistent, risk-adjusted growth that compounds over years.
 Long-only spot, no leverage, no shorts. Macro-driven moves over technical
-chop. Same growth-disciplined posture as Anton and Tiberius.
+chop. Same growth-disciplined posture as Doric and Corinthian.
 
 ---
 
@@ -49,12 +49,12 @@ chop. Same growth-disciplined posture as Anton and Tiberius.
   enabled.
 - **AI Sentiment Layer:** Gemma 4 26B on Battlemage B70 GPU via LM Studio —
   reached from inside containers at `http://host.docker.internal:1234/v1`.
-- **News source:** Brave Search API (same as Anton/Tiberius).
+- **News source:** Brave Search API (same as Doric/Corinthian).
 - **Command & Control:** Telegram bot — Phase 2+.
 - **Infrastructure:** Docker Compose stack on Windows 11 + WSL2 + Docker
   Desktop. Three containers (`sulla-engine`, `sulla-api`, `sulla-web`).
-- **Host:** `battlemage` — LAN IP `192.168.0.135`. Same machine runs Anton,
-  Tiberius, Milton, Fixit, and LM Studio.
+- **Host:** `battlemage` — LAN IP `192.168.0.135`. Same machine runs Doric,
+  Corinthian, Milton, Fixit, and LM Studio.
 
 ---
 
@@ -62,10 +62,10 @@ chop. Same growth-disciplined posture as Anton and Tiberius.
 
 ```
 ~/swarm/sulla/                  # On the host (battlemage)
-├── repo/                       # git clone of blisske/Praetor-Sulla
+├── repo/                       # git clone of blisske/Foundation-Ionic
 │   ├── core/                   # Trading engine source
 │   │   ├── main.py             # Phase 1 placeholder (heartbeat + idle loop)
-│   │   ├── _main_anton_reference.py  # Anton's main.py preserved as Phase 2 porting reference
+│   │   ├── _main_anton_reference.py  # Doric's main.py preserved as Phase 2 porting reference
 │   │   ├── market_data.py, strategy.py, execution.py, ai_brain.py, etc.
 │   │   ├── config_manager.py
 │   │   ├── database.py
@@ -86,7 +86,7 @@ chop. Same growth-disciplined posture as Anton and Tiberius.
 ```
 
 The swarm root at `~/swarm/docker-compose.yml` `include:`s this compose file
-alongside Anton's, Tiberius's, Milton's, and Fixit's. **All routine deploys
+alongside Doric's, Corinthian's, Milton's, and Fixit's. **All routine deploys
 run from `~/swarm/`** — running compose from `~/swarm/sulla/repo/` directly
 uses a different compose project and collides with the swarm-managed
 `container_name:` declarations.
@@ -116,7 +116,7 @@ The API config-save endpoint coordinates engine restarts via a flag file
 (`/app/data/.restart_engine`) — engine watches the flag at the top of every
 loop iteration, deletes it, and **calls `os._exit(0)` so compose's
 `restart: unless-stopped` actually fires**. Don't switch to the "graceful
-break out of inner loop" pattern; that's the bug Anton/Tiberius hit on
+break out of inner loop" pattern; that's the bug Doric/Corinthian hit on
 2026-05-12 — the process kept running on Telegram polling alone after the
 loop ended.
 
@@ -146,9 +146,9 @@ passlib compatibility). API secret key is a 64-char random hex string.
 
 ---
 
-## Core Design Pillars (inherited from Anton/Tiberius)
+## Core Design Pillars (inherited from Doric/Corinthian)
 
-Sulla shares the Praetor architecture wholesale:
+Ionic shares the Foundation architecture wholesale:
 
 1. **Multi-paradigm signal engine** — Trend Following, Mean Reversion,
    Volatility Breakout, Liquidity Sweep. Regime gate via ADX.
@@ -161,9 +161,9 @@ Sulla shares the Praetor architecture wholesale:
 
 ---
 
-## FX-specific differences (vs Anton/Tiberius)
+## FX-specific differences (vs Doric/Corinthian)
 
-| | Tiberius | Anton | Sulla |
+| | Corinthian | Doric | Ionic |
 |---|---|---|---|
 | Broker | Kraken/CCXT | Alpaca | Oanda v20 |
 | Hours | 24/7 | 9:30–4 ET | 24/5 |
@@ -191,7 +191,7 @@ Sulla shares the Praetor architecture wholesale:
 
 ## Do Not Re-Suggest (Inherited Lessons)
 
-These are lessons learned by Anton and Tiberius the hard way. Sulla starts
+These are lessons learned by Doric and Corinthian the hard way. Ionic starts
 with them baked in:
 
 - **Engine restart-flag flow** — `_check_restart_flag()` must call
@@ -211,14 +211,14 @@ with them baked in:
   declarations (`Error response from daemon: Conflict. The container name
   "/sulla-engine" is already in use`).
 - **Telegram bot token uniqueness** — Each bot needs its own BotFather
-  token. Reusing Anton's or Tiberius's token would cause polling conflicts
+  token. Reusing Doric's or Corinthian's token would cause polling conflicts
   (Telegram allows only one polling client per bot). Phase 1 engine doesn't
-  poll Telegram at all to avoid this; Phase 2+ wires in a dedicated Sulla
+  poll Telegram at all to avoid this; Phase 2+ wires in a dedicated Ionic
   bot.
 - **Leverage is intentionally absent** — Oanda accounts default to margin.
-  Sulla deliberately trades unleveraged (1:1 sizing). Smaller positions for
+  Ionic deliberately trades unleveraged (1:1 sizing). Smaller positions for
   the same risk; slower compounding; fine. The whole point of picking spot
-  in Tiberius (and cash account in Anton) was tail-risk discipline; same
+  in Corinthian (and cash account in Doric) was tail-risk discipline; same
   principle here. Don't propose enabling margin to "boost returns."
 
 ---
@@ -241,10 +241,10 @@ with them baked in:
 
 ### After every session
 - Update `WORKING_STATE.md`
-- Commit and push to `github.com/blisske/Praetor-Sulla`
+- Commit and push to `github.com/blisske/Foundation-Ionic`
 
 ### Flag with ⚠️
-Any suggestion that could affect live trading capital. (Sulla is
+Any suggestion that could affect live trading capital. (Ionic is
 pre-broker-integration so live-trading risk is zero in Phase 1; this will
 matter from Phase 2 onward.)
 
@@ -257,7 +257,7 @@ matter from Phase 2 onward.)
 3. `cd ~/swarm/` (always — compose runs from the swarm root)
 4. For one-off Python: `docker exec -it sulla-engine python3` (limited to
    stdlib in Phase 1 — no oanda/telegram libs in requirements.txt yet)
-5. Anton and Tiberius are sister bots in the same swarm; their repos are at
-   `~/swarm/anton/repo` and `~/swarm/tiberius/repo`. The Anton Guide page
-   (`web/src/pages/Guide.jsx`) is the closest reference for the Sulla Guide
+5. Doric and Corinthian are sister bots in the same swarm; their repos are at
+   `~/swarm/anton/repo` and `~/swarm/tiberius/repo`. The Doric Guide page
+   (`web/src/pages/Guide.jsx`) is the closest reference for the Ionic Guide
    we'll write in Phase 5.
