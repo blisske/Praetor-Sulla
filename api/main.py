@@ -392,6 +392,22 @@ def _risk_state_snapshot(conn) -> dict:
     }
 
 
+def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
+    """
+    Mark-to-market value of an FX position in USD. Mirrors the helper in
+    core/database.py (same logic — kept here to avoid an import dependency
+    from api → core).
+
+    - 'X/USD' (USD quote): value = units × price (price is USD per X)
+    - 'USD/X' (USD base):  value = units (each unit is already 1 USD)
+    """
+    if not symbol:
+        return float(units or 0) * float(price or 0)
+    if symbol.startswith('USD/'):
+        return float(units or 0)
+    return float(units or 0) * float(price or 0)
+
+
 def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float, float]:
     """
     Returns (initial_capital, shadow_equity, pnl_usd).
@@ -400,6 +416,10 @@ def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float,
       equity = cash + market_value(open positions at most-recent market_states price)
     Falls back to the legacy "initial + sum(realized)" calc when shadow_account
     is missing — keeps the API working against pre-pivot DBs.
+
+    FX mark uses `_fx_position_value_usd` so USD-base pairs (USD/JPY, USD/CAD,
+    USD/CHF) don't get inflated by units × price (1199 USD × 159 JPY/USD =
+    $190K nonsense). See helper's docstring for the math.
     """
     shadow_row = conn.execute(
         "SELECT cash, initial_capital FROM shadow_account WHERE id=1"
@@ -408,16 +428,18 @@ def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float,
     if shadow_row:
         cash    = float(shadow_row[0])
         initial = float(shadow_row[1])
-        # Market value: shares × most-recent market_states.price per symbol;
-        # falls back to entry_price when no market data exists yet.
+        # Market value: FX-aware mark per symbol; falls back to entry_price
+        # when market_states has no row for the symbol yet.
         positions = conn.execute("""
-            SELECT op.shares, op.entry_price,
+            SELECT op.symbol, op.shares, op.entry_price,
                    (SELECT price FROM market_states WHERE symbol=op.symbol ORDER BY id DESC LIMIT 1)
             FROM open_positions op
         """).fetchall()
         market_value = sum(
-            float(shares or 0) * (float(latest) if latest is not None else float(entry or 0))
-            for (shares, entry, latest) in positions
+            _fx_position_value_usd(
+                sym, shares, latest if latest is not None else entry
+            )
+            for (sym, shares, entry, latest) in positions
         )
         equity  = cash + market_value
         pnl_usd = equity - initial

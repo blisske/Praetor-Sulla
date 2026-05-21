@@ -1148,6 +1148,38 @@ def update_risk_state(**fields):
         })
 
 
+def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
+    """
+    Mark-to-market value of an FX position in USD.
+
+    Sulla inherited the equity-mark math from Anton (where positions are stocks
+    and `shares × price` correctly yields USD value). For FX, the math depends
+    on which side of the pair USD sits:
+
+    - 'X/USD' (USD is the QUOTE currency):  value_usd = units × price
+        Example: AUD/USD 1677 units @ 0.715 → 1677 × 0.715 = $1,199 USD.
+
+    - 'USD/X' (USD is the BASE currency):   value_usd = units
+        Each unit already IS one USD. Multiplying by price would mis-mark it
+        as JPY/CAD/CHF.
+        Example: USD/JPY 1199 units → $1,199 USD (NOT 1199 × 159 = $190K).
+
+    Cross-rate FX (no USD leg, e.g. EUR/GBP) would need triangulation; not
+    relevant for Sulla's 7-major universe (all pairs include USD).
+
+    NOTE: This treats positions as held-asset value, not full directional PnL.
+    For USD-base pairs that means PnL contribution from rate movement is not
+    captured here — the position always marks at entry-value. Good enough for
+    drawdown tracking (the primary consumer); a full FX PnL pass would need a
+    separate calc using entry-price vs current-price ratios.
+    """
+    if not symbol:
+        return float(units or 0) * float(price or 0)
+    if symbol.startswith('USD/'):
+        return float(units or 0)
+    return float(units or 0) * float(price or 0)
+
+
 def get_shadow_account_state(latest_prices: dict | None = None) -> dict:
     """
     Computes shadow equity from cash + market value of open positions.
@@ -1155,13 +1187,22 @@ def get_shadow_account_state(latest_prices: dict | None = None) -> dict:
     cached price fall back to entry_price (one-cycle stale, acceptable
     for drawdown tracking).
 
+    For FX, the mark uses `_fx_position_value_usd` which handles USD-base
+    pairs (USD/JPY, USD/CAD, USD/CHF) correctly — see that helper's docstring
+    for why naïve `units × price` mis-marks USD-base pairs and pollutes the
+    drawdown peak watermark.
+
     Returns dict with: equity, cash, held_assets ({symbol: shares})
     """
     cash = get_shadow_cash()
     positions = get_all_open_positions()
     prices = latest_prices or {}
     market_value = sum(
-        p['shares'] * prices.get(p['symbol'], p['entry_price'])
+        _fx_position_value_usd(
+            p['symbol'],
+            p['shares'],
+            prices.get(p['symbol'], p['entry_price']),
+        )
         for p in positions
     )
     return {

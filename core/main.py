@@ -1396,6 +1396,16 @@ async def trading_loop_async() -> None:
     except Exception as e:
         logger.warning(f"init_shadow_account() failed (continuing): {e}")
 
+    # Seed the risk_state row so update_risk_state(...) (UPDATE-only) can persist
+    # the tiered-drawdown machine. Without this, the row never exists and every
+    # cycle reads `risk_mode='NORMAL'` (default fallback) → transitions fire
+    # every cycle → Telegram alert spam. Idempotent (INSERT OR IGNORE).
+    # Parity with Anton's startup at anton/core/main.py:51.
+    try:
+        database.init_risk_state()
+    except Exception as e:
+        logger.warning(f"init_risk_state() failed (continuing): {e}")
+
     if market_data.get_client() is None:
         logger.warning("Sulla running without Oanda credentials — trading idle.")
 
