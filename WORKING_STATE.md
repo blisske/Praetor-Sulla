@@ -1,7 +1,41 @@
 # WORKING_STATE.md — Sulla V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-21 (Foundation brand pass)
+> Last updated: 2026-05-21 (Ionic engine bug fix — drawdown spam)
+
+---
+
+## 2026-05-21 (evening) — Ionic engine bug fix: kill drawdown spam
+
+Ionic was firing `RISK MODE → HALT, Drawdown 95.0% from peak ($200,125.81 → $9,992.54)` Telegram alerts every ~5 minutes despite zero open positions and a $10K shadow ledger. Two cascading bugs.
+
+**Root cause 1: equity-mark math wrong for USD-base FX pairs.**
+
+`get_shadow_account_state` (core/database.py) and `_compute_shadow_equity` (api/main.py) both inherited Anton's `market_value = sum(shares × current_price)` math. Correct for equities. Correct for FX where USD is the **quote** currency (AUD/USD, GBP/USD, EUR/USD — units × USD-per-base = USD). Catastrophically wrong for USD-**base** pairs (USD/JPY, USD/CAD, USD/CHF) where units are already USD; multiplying by price mis-marks them as JPY/CAD/CHF amounts.
+
+Specifically:
+- USD/JPY 1199 units @ 159.198 → mark = 1199 × 159.198 = $190,888 (BUG, should be $1,199)
+- That single mark pushed equity to ~$200K, the peak watermark captured it, and after positions closed (equity back to $9,992) the drawdown calc reported 95% forever after.
+
+Fix: new `_fx_position_value_usd(symbol, units, price)` helper in both modules (duplicated to avoid an api→core import dependency). For `USD/*` pairs it returns `units` directly; for `*/USD` pairs it returns `units × price`. Caveat documented: this gives held-asset value, not full directional PnL on USD-base pairs. Adequate for drawdown tracking; full FX-PnL pass can refine later.
+
+**Root cause 2: `risk_state` row never seeded → transition gate broken.**
+
+The tiered-drawdown state machine in `core/main.py:741` reads `get_risk_state()`, computes `target_mode`, fires Telegram alert only when `target_mode != prev_mode`. Gating logic was correct. But `update_risk_state` does UPDATE-only — no INSERT. If the row doesn't exist, the write silently no-ops.
+
+Doric's `main.py` wires `database.init_risk_state()` at startup (line 51 there) to seed the row. Ionic's `main.py` copied most of Doric's startup sequence but missed that one call. Result: `risk_state` table stayed empty → `get_risk_state()` returned the `NORMAL` default fallback every cycle → with the polluted peak above, every cycle re-evaluated as `NORMAL → HALT` (a "transition") → alert fired every cycle → spam.
+
+Fix: add the missing `database.init_risk_state()` call after `init_shadow_account()` in `trading_loop_async`, matching Doric's pattern. Comment explains why so future code archaeology finds the trail.
+
+**Stop-the-bleeding actions (applied to live DB outside the commit):**
+- `equity_peak` row reset from $200,125.81 → $10,000.00 via direct SQL
+- `risk_state` row seeded with `(NORMAL, daily_halt=0)` via direct SQL so gating worked immediately on next cycle (no need to wait for engine restart to call `init_risk_state`)
+
+**Verification:** engine + api rebuilt and recreated. One full cycle elapsed post-fix: zero risk-mode alerts, zero spam, state holding NORMAL with drawdown 0.08% against the corrected $10K peak.
+
+**Not affected:** Doric (equities — math is right for stocks; `init_risk_state` wired up), Corinthian (no USD-base inversion in crypto pairs like BTC/USD — USD is always quote; `init_risk_state` wired up).
+
+**Commit:** `7e6295c` pushed to `Foundation-Ionic:main`.
 
 ---
 
