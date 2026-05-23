@@ -1,6 +1,6 @@
 """
-Sulla API — FastAPI backend
-Serves REST endpoints and WebSocket stream for the Sulla React dashboard.
+Ionic API — FastAPI backend
+Serves REST endpoints and WebSocket stream for the Ionic React dashboard.
 FX instance — Oanda v20 (Phase 1 scaffold; shadow-only).
 """
 import asyncio
@@ -32,7 +32,7 @@ load_dotenv(Path(os.environ.get('ENV_FILE', BASE_DIR / 'core' / '.env')))
 CORE_DIR = BASE_DIR / "core"
 # Container-friendly: SQLITE_PATH points at the bind-mounted runtime DB.
 # DEMO_SQLITE_PATH points at the read-only demo DB shipped in the image.
-REAL_DB = Path(os.environ.get('SQLITE_PATH',      CORE_DIR / "sulla_data.db"))
+REAL_DB = Path(os.environ.get('SQLITE_PATH',      CORE_DIR / "ionic_data.db"))
 DEMO_DB = Path(os.environ.get('DEMO_SQLITE_PATH', CORE_DIR / "demo_data.db"))
 
 # Restart-coordination: the engine watches for this flag file and exits
@@ -49,7 +49,7 @@ import config_manager
 import execution
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="Sulla API", version="1.0.0")
+app = FastAPI(title="Ionic API", version="1.0.0")
 
 @app.on_event("startup")
 async def startup():
@@ -58,7 +58,7 @@ async def startup():
 # Container-friendly: comma-separated CORS_ORIGINS env var with sensible
 # defaults. In compose, set CORS_ORIGINS to the public hostnames the dashboard
 # is served from (Traefik / hopto / future VPS domain).
-_default_origins = "http://localhost:5173,http://localhost:3000,http://192.168.0.131,http://192.168.0.135,https://sulla.blisske.hopto.org"
+_default_origins = "http://localhost:5173,http://localhost:3000,http://192.168.0.131,http://192.168.0.135,https://ionic.blisske.hopto.org"
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
 
 app.add_middleware(
@@ -283,11 +283,11 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 # ── REST endpoints ────────────────────────────────────────────────────────────
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "Sulla API", "version": "1.0.0"}
+    return {"status": "ok", "service": "Ionic API", "version": "1.0.0"}
 
 @app.get("/api/session")
 async def get_session(user: str = Depends(get_current_user)):
-    """FX market session status. Sulla + Anton both expose /api/session
+    """FX market session status. Ionic + Anton both expose /api/session
     since both asset classes have session boundaries; Tiberius doesn't
     (crypto trades 24/7)."""
     return _market_session_status()
@@ -686,7 +686,7 @@ async def _drain_pending_events():
     after 7 days so the table doesn't grow unbounded.
     """
     import logging
-    log = logging.getLogger("sulla.api.drain")
+    log = logging.getLogger("ionic.api.drain")
     prune_counter = 0
     while True:
         try:

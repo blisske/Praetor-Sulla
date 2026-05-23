@@ -1,4 +1,4 @@
-// Shared across the Praetor swarm (Anton/Tiberius/Sulla). Identical contents
+// Shared across the Praetor swarm (Anton/Tiberius/Ionic). Identical contents
 // per bot — drift detector enforces parity. Renders the inspect + reject
 // surface for a single tuning candidate.
 //

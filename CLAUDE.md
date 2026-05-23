@@ -39,20 +39,20 @@ chop. Same growth-disciplined posture as Doric and Corinthian.
 - **Broker:** Oanda v20 REST API. Practice account is free + unlimited;
   live account is paid + funded. Token-based OAuth, no GUI dependencies
   (unlike IBKR's TWS/IBGateway socket protocol).
-- **Backend:** FastAPI on `0.0.0.0:8002` inside `sulla-api` (published to
+- **Backend:** FastAPI on `0.0.0.0:8002` inside `ionic-api` (published to
   host loopback `127.0.0.1:8002` for debugging; external traffic flows via
   swarm Traefik).
-- **Frontend:** React + Vite + Tailwind v4, built into `sulla-web` (nginx
-  serves `dist/`, proxies `/api/` and `/ws` to `sulla-api:8002`).
-- **Database:** SQLite at `/app/data/sulla.db` inside the container,
-  bind-mounted from `~/swarm/sulla/data/sulla.db` on the host. WAL mode
+- **Frontend:** React + Vite + Tailwind v4, built into `ionic-web` (nginx
+  serves `dist/`, proxies `/api/` and `/ws` to `ionic-api:8002`).
+- **Database:** SQLite at `/app/data/ionic.db` inside the container,
+  bind-mounted from `~/swarm/ionic/data/ionic.db` on the host. WAL mode
   enabled.
 - **AI Sentiment Layer:** Gemma 4 26B on Battlemage B70 GPU via LM Studio —
   reached from inside containers at `http://host.docker.internal:1234/v1`.
 - **News source:** Brave Search API (same as Doric/Corinthian).
 - **Command & Control:** Telegram bot — Phase 2+.
 - **Infrastructure:** Docker Compose stack on Windows 11 + WSL2 + Docker
-  Desktop. Three containers (`sulla-engine`, `sulla-api`, `sulla-web`).
+  Desktop. Three containers (`ionic-engine`, `ionic-api`, `ionic-web`).
 - **Host:** `battlemage` — LAN IP `192.168.0.135`. Same machine runs Doric,
   Corinthian, Milton, Fixit, and LM Studio.
 
@@ -61,7 +61,7 @@ chop. Same growth-disciplined posture as Doric and Corinthian.
 ## Directory Layout
 
 ```
-~/swarm/sulla/                  # On the host (battlemage)
+~/swarm/ionic/                  # On the host (battlemage)
 ├── repo/                       # git clone of blisske/Foundation-Ionic
 │   ├── core/                   # Trading engine source
 │   │   ├── main.py             # Phase 1 placeholder (heartbeat + idle loop)
@@ -74,11 +74,11 @@ chop. Same growth-disciplined posture as Doric and Corinthian.
 │   ├── api/                    # FastAPI source
 │   ├── web/                    # React + Vite source + nginx Dockerfile
 │   ├── Dockerfile              # Multi-stage: targets `engine` and `api`
-│   ├── docker-compose.yml      # Three services: sulla-engine, sulla-api, sulla-web
+│   ├── docker-compose.yml      # Three services: ionic-engine, ionic-api, ionic-web
 │   ├── requirements.txt
 │   └── WORKING_STATE.md
 ├── data/                       # Bind-mounted into engine + api at /app/data
-│   ├── sulla.db                # Live SQLite DB (created on first engine boot)
+│   ├── ionic.db                # Live SQLite DB (created on first engine boot)
 │   ├── Config.yaml             # Live, editable; survives image rebuilds
 │   ├── .restart_engine         # API touches → engine exits → compose restarts
 │   └── .engine_heartbeat       # Engine touches per cycle
@@ -87,7 +87,7 @@ chop. Same growth-disciplined posture as Doric and Corinthian.
 
 The swarm root at `~/swarm/docker-compose.yml` `include:`s this compose file
 alongside Doric's, Corinthian's, Milton's, and Fixit's. **All routine deploys
-run from `~/swarm/`** — running compose from `~/swarm/sulla/repo/` directly
+run from `~/swarm/`** — running compose from `~/swarm/ionic/repo/` directly
 uses a different compose project and collides with the swarm-managed
 `container_name:` declarations.
 
@@ -95,21 +95,21 @@ uses a different compose project and collides with the swarm-managed
 
 ## Services
 
-Three docker containers, all on a per-bot bridge `sulla-net` (engine + api
+Three docker containers, all on a per-bot bridge `ionic-net` (engine + api
 private to the bot, web multi-homed onto `swarm-net` so Traefik can reach it):
 
 | Container | Image target | Bind | Role |
 |---|---|---|---|
-| `sulla-engine` | `Dockerfile` target `engine` | none | Trading daemon + Telegram bot (Phase 2+) |
-| `sulla-api` | `Dockerfile` target `api` | `127.0.0.1:8002` | FastAPI dashboard backend + WebSocket |
-| `sulla-web` | `web/Dockerfile` | `:8085` (LAN debug) | React SPA via nginx; proxies `/api/`, `/ws` to `sulla-api:8002` |
+| `ionic-engine` | `Dockerfile` target `engine` | none | Trading daemon + Telegram bot (Phase 2+) |
+| `ionic-api` | `Dockerfile` target `api` | `127.0.0.1:8002` | FastAPI dashboard backend + WebSocket |
+| `ionic-web` | `web/Dockerfile` | `:8085` (LAN debug) | React SPA via nginx; proxies `/api/`, `/ws` to `ionic-api:8002` |
 
 ```bash
 # Canonical: run from the swarm root (~/swarm/)
-docker compose up -d --build sulla-engine
-docker compose restart sulla-engine
-docker compose logs -f sulla-engine
-docker compose logs sulla-api --tail 50
+docker compose up -d --build ionic-engine
+docker compose restart ionic-engine
+docker compose logs -f ionic-engine
+docker compose logs ionic-api --tail 50
 ```
 
 The API config-save endpoint coordinates engine restarts via a flag file
@@ -124,12 +124,12 @@ loop ended.
 
 ## External Access
 
-- **Domain:** `sulla.blisske.hopto.org` (No-IP dynamic DNS).
+- **Domain:** `ionic.blisske.hopto.org` (No-IP dynamic DNS).
 - **Reverse proxy:** Traefik v3 at `~/swarm/proxy/` (file provider — routes
-  in `~/swarm/proxy/dynamic/sulla.yml`).
+  in `~/swarm/proxy/dynamic/ionic.yml`).
 - **SSL:** Let's Encrypt via Traefik HTTP-01 challenge.
-- **LAN debug:** `http://192.168.0.135:8085` (sulla-web direct publish) and
-  `http://127.0.0.1:8002` (sulla-api loopback). Remove both `ports:` blocks
+- **LAN debug:** `http://192.168.0.135:8085` (ionic-web direct publish) and
+  `http://127.0.0.1:8002` (ionic-api loopback). Remove both `ports:` blocks
   once Traefik fronting is fully verified.
 
 ---
@@ -141,7 +141,7 @@ loop ended.
 | Admin | `admin` | Full — can restart, save config |
 | Demo | `demo` | Read-only — uses static demo DB snapshot |
 
-Password hashes stored in `~/swarm/sulla/.env` (bcrypt 4.0.1 — pinned for
+Password hashes stored in `~/swarm/ionic/.env` (bcrypt 4.0.1 — pinned for
 passlib compatibility). API secret key is a 64-char random hex string.
 
 ---
@@ -200,16 +200,16 @@ with them baked in:
   process alive on Telegram polling and compose never restarts. The web
   Restart button + `/restart` Telegram command depend on this.
 - **nginx DNS-cache 502** — Don't use the static `upstream … { server
-  sulla-api:8002; }` form. Every `-api` rebuild gets a new bridge-network
+  ionic-api:8002; }` form. Every `-api` rebuild gets a new bridge-network
   IP and nginx will silently cache the dead old one. Use `resolver
-  127.0.0.11 valid=10s ipv6=off;` + `set $upstream_api http://sulla-api:8002;
+  127.0.0.11 valid=10s ipv6=off;` + `set $upstream_api http://ionic-api:8002;
   proxy_pass $upstream_api;` (the variable in `proxy_pass` is what triggers
   per-request re-resolution).
 - **Compose-from-repo-dir collision** — Always run `docker compose` from
-  `~/swarm/`. Running from `~/swarm/sulla/repo/` creates a different
+  `~/swarm/`. Running from `~/swarm/ionic/repo/` creates a different
   compose project that collides with the swarm-managed `container_name:`
   declarations (`Error response from daemon: Conflict. The container name
-  "/sulla-engine" is already in use`).
+  "/ionic-engine" is already in use`).
 - **Telegram bot token uniqueness** — Each bot needs its own BotFather
   token. Reusing Doric's or Corinthian's token would cause polling conflicts
   (Telegram allows only one polling client per bot). Phase 1 engine doesn't
@@ -255,9 +255,9 @@ matter from Phase 2 onward.)
 1. Upload this CLAUDE.md + WORKING_STATE.md at session start
 2. SSH into the host: `ssh blisske@192.168.0.135`
 3. `cd ~/swarm/` (always — compose runs from the swarm root)
-4. For one-off Python: `docker exec -it sulla-engine python3` (limited to
+4. For one-off Python: `docker exec -it ionic-engine python3` (limited to
    stdlib in Phase 1 — no oanda/telegram libs in requirements.txt yet)
 5. Doric and Corinthian are sister bots in the same swarm; their repos are at
-   `~/swarm/anton/repo` and `~/swarm/tiberius/repo`. The Doric Guide page
+   `~/swarm/doric/repo` and `~/swarm/corinthian/repo`. The Doric Guide page
    (`web/src/pages/Guide.jsx`) is the closest reference for the Ionic Guide
    we'll write in Phase 5.

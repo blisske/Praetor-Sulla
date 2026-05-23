@@ -1,5 +1,5 @@
 """
-Sulla — Market Data + Indicator Engine.
+Ionic — Market Data + Indicator Engine.
 
 Fetches OHLCV from Oanda v20, computes the same indicator stack as Anton and
 Tiberius (EMA / RSI / ADX / ATR / Bollinger), and returns a single dict with
@@ -23,7 +23,7 @@ import pandas_ta as ta
 
 from oanda_client import OandaClient, OandaError, OandaMissingCredentials
 
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 
 # ── Lazy client init ────────────────────────────────────────────────────────

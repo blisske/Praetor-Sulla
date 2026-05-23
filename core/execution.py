@@ -1,5 +1,5 @@
 """
-Sulla — Execution layer.
+Ionic — Execution layer.
 
 Phase 3 is **shadow-only** by deliberate design: the engine logs trades to
 the synthetic ledger in `database.py` but never calls Oanda's order
@@ -23,7 +23,7 @@ import logging
 
 import fx_math
 
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 
 def is_market_open() -> bool:

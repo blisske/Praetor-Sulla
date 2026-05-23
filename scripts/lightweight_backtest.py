@@ -1,7 +1,7 @@
 """
-lightweight_backtest.py — Sulla historical backtest harness.
+lightweight_backtest.py — Ionic historical backtest harness.
 
-Pattern ported from Tiberius's pre-flip tuning pass. Runs Sulla's production
+Pattern ported from Tiberius's pre-flip tuning pass. Runs Ionic's production
 strategy code verbatim — `strategy.check_entry_signals`,
 `strategy.check_supporting_signals`, the inlined MTF gate, the consensus score
 gate, ATR-stop sizing, ratchet trailing stop, EOD force-exit, tiered
@@ -52,12 +52,12 @@ import pandas_ta as ta
 import pytz
 import yaml
 
-# Make Sulla's core/ importable so we run production strategy code verbatim.
+# Make Ionic's core/ importable so we run production strategy code verbatim.
 ROOT      = Path(__file__).resolve().parent.parent
 CORE_DIR  = ROOT / 'core'
 sys.path.insert(0, str(CORE_DIR))
 
-import strategy as sulla_strategy  # noqa: E402
+import strategy as ionic_strategy  # noqa: E402
 import config_manager              # noqa: E402
 
 from alpaca.data.requests import StockBarsRequest          # noqa: E402
@@ -74,7 +74,7 @@ RESULTS_DIR    = ROOT / 'scripts' / 'backtest_results'
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Sulla paradigms — must match strategy.py return strings.
+# Ionic paradigms — must match strategy.py return strings.
 PARADIGMS = ['TREND FOLLOWING', 'MEAN REVERSION', 'VOLATILITY BREAKOUT', 'LIQUIDITY SWEEP']
 
 # Map paradigm name → which symbols the MTF gate applies to.
@@ -230,7 +230,7 @@ def build_indicator_dict(panel: pd.DataFrame, i: int, *, daily_trend: str,
 def precompute_daily_trend(daily_panel: pd.DataFrame) -> dict[str, str]:
     """
     Returns {iso_date: 'BULL'|'BEAR'} based on EMA9 vs EMA21 of the daily bars.
-    Matches Sulla's _get_daily_trend() in main.py — daily MTF is computed once
+    Matches Ionic's _get_daily_trend() in main.py — daily MTF is computed once
     per ET trading day.
     """
     if daily_panel.empty:
@@ -601,7 +601,7 @@ def run_backtest(panels: dict[str, pd.DataFrame],
 
             # ── Layer 1: Paradigm fire ──
             try:
-                fired, paradigm = sulla_strategy.check_entry_signals(ind, sym_cfg)
+                fired, paradigm = ionic_strategy.check_entry_signals(ind, sym_cfg)
             except Exception:
                 fired, paradigm = False, "NONE"
             if not fired or paradigm not in PARADIGMS:
@@ -619,7 +619,7 @@ def run_backtest(panels: dict[str, pd.DataFrame],
 
             # ── Layer 2: Supporting signals (2 of 3) ──
             try:
-                support_score, _reasons = sulla_strategy.check_supporting_signals(
+                support_score, _reasons = ionic_strategy.check_supporting_signals(
                     ind, paradigm, sym_cfg
                 )
             except Exception:
@@ -726,7 +726,7 @@ def render_report(state: EngineState, *, start: datetime, end: datetime,
     avg_r    = (sum(t.pnl_pct for t in state.closed_trades) / n_trades) if n_trades else 0.0
 
     lines = []
-    lines.append(f"# Sulla Backtest Report — {start.date()} → {end.date()}")
+    lines.append(f"# Ionic Backtest Report — {start.date()} → {end.date()}")
     lines.append("")
     lines.append("## Caveats (read these first)")
     lines.append("")
@@ -872,7 +872,7 @@ def build_unified_timeline(panels: dict[str, pd.DataFrame]) -> pd.DatetimeIndex:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split('\n')[1] if __doc__ else "Sulla backtest")
+    parser = argparse.ArgumentParser(description=__doc__.split('\n')[1] if __doc__ else "Ionic backtest")
     parser.add_argument('--start', type=str, default=None, help='YYYY-MM-DD (default: 12 months ago)')
     parser.add_argument('--end',   type=str, default=None, help='YYYY-MM-DD (default: today)')
     parser.add_argument('--symbols', nargs='+', default=None, help='Override symbols to test')
@@ -881,7 +881,7 @@ def main() -> int:
     parser.add_argument('--output', type=str, default=None, help='Markdown report path (default: scripts/backtest_results/<ts>.md)')
     args = parser.parse_args()
 
-    # Load Sulla's live Config.yaml as baseline.
+    # Load Ionic's live Config.yaml as baseline.
     config_path = CORE_DIR / 'Config.yaml'
     with open(config_path) as f:
         config = yaml.safe_load(f)

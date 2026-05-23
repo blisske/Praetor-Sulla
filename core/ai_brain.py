@@ -1,5 +1,5 @@
 """
-Sulla — AI Sentiment & Consensus Engine.
+Ionic — AI Sentiment & Consensus Engine.
 
 Three-tier verdict: BULLISH (execute) / NEUTRAL (hold) / BEARISH (hard abort).
 
@@ -16,7 +16,7 @@ import asyncio
 import logging
 import requests
 
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 
 _SYSTEM_PROMPT = (

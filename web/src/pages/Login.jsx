@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth.jsx'
 const GOLD     = '#C8922A'
 const GOLD_LT  = '#E8B84B'
 const NAVY     = '#0b1526'
-const BLUE     = '#3B82F6'   // Sulla brand accent
+const BLUE     = '#3B82F6'   // Ionic brand accent
 const BLUE_LT  = '#60A5FA'
 
 // Ionic column capital — same glyph as the sidebar, scaled for the login wordmark.
@@ -42,7 +42,7 @@ function FoundationMark({ size = 28 }) {
 // Currency-symbol pattern overlay for the right panel.
 // Scattered glyphs of the 7 majors at varying size + opacity + rotation,
 // rendered as background ambience behind the candles. Distinct from Anton's
-// coins / Tiberius's abstract bg — this is Sulla's "what am I logging into" tell.
+// coins / Tiberius's abstract bg — this is Ionic's "what am I logging into" tell.
 function CurrencyGlyphs() {
   // Each entry: {x, y, glyph, size, opacity, rotate}.
   // Glyphs cover the 7 majors: € £ ¥ $ for the Unicode-friendly ones,
@@ -90,7 +90,7 @@ function CurrencyGlyphs() {
 // one per major. Replaces the gold candlestick decoration from earlier; the
 // candle motif appears on Anton's login too and was making the three bots'
 // login pages bleed into one another visually. This component is unique to
-// Sulla and reads as "this is the multi-asset FX system" at a glance.
+// Ionic and reads as "this is the multi-asset FX system" at a glance.
 //
 // Each line is a cubic-bezier path traversing x=0 to x=100 in the SVG
 // viewBox. We hand-tune Y values per line so the curves feel like distinct
@@ -351,10 +351,10 @@ export default function Login() {
         background: `linear-gradient(160deg, #0b1830 0%, ${NAVY} 45%, #060d18 100%)`,
       }}>
 
-        {/* Currency-symbol pattern (Sulla's distinct FX-trading tell) */}
+        {/* Currency-symbol pattern (Ionic's distinct FX-trading tell) */}
         <CurrencyGlyphs />
 
-        {/* Ambient blue glow behind candles — Sulla brand wash */}
+        {/* Ambient blue glow behind candles — Ionic brand wash */}
         <div style={{
           position: 'absolute', bottom: '-10%', left: '0', right: '0',
           height: '70%',
@@ -364,7 +364,7 @@ export default function Login() {
 
         {/* Multi-pair chart trace — seven smooth Bezier curves in graduated
             blues, one per major. Replaces Anton's gold-candle motif so the
-            Sulla login reads as distinctly FX, not a TradFi recolor. */}
+            Ionic login reads as distinctly FX, not a TradFi recolor. */}
         <MultiPairChartTrace />
 
         {/* Top-left label */}
@@ -376,7 +376,7 @@ export default function Login() {
           Foundation
         </div>
 
-        {/* Top-right Sulla mark — distinguishes from Anton/Tiberius without
+        {/* Top-right Ionic mark — distinguishes from Anton/Tiberius without
             forcing the visitor to read the bottom-left tagline */}
         <div style={{
           position: 'absolute', top: '34px', right: '40px',
@@ -412,7 +412,7 @@ export default function Login() {
             Multi-paradigm signals, AI consensus, disciplined compounding.
           </p>
 
-          {/* Blue accent line (Sulla brand) */}
+          {/* Blue accent line (Ionic brand) */}
           <div style={{
             marginTop: '24px', width: '64px', height: '3px',
             background: `linear-gradient(90deg, ${BLUE}, ${BLUE_LT}33 60%, transparent)`,

@@ -3,10 +3,10 @@ import datetime
 from datetime import date
 import pytz
 
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 # ==============================================================================
-# SULLA V1 - EARNINGS BLACKOUT ENGINE
+# IONIC V1 - EARNINGS BLACKOUT ENGINE
 # Blocks new entries within N calendar days of a symbol's earnings date.
 # Uses yfinance for the earnings calendar — no API key required.
 # ==============================================================================

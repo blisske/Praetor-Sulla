@@ -1,4 +1,4 @@
-# Sulla V1 - The Core Logic
+# Ionic V1 - The Core Logic
 * **Objective:** Capital preservation first, alpha generation second. 
 * **Ethics:** The market is a mathematical construct. Remove all emotion. 
 * **Philosophy:** Risk parity is absolute. Never chase a pump. Never revenge trade.

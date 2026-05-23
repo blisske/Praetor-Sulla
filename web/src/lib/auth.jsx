@@ -4,7 +4,7 @@ import api from './api.js'
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('sulla_token'))
+  const [token, setToken] = useState(() => localStorage.getItem('ionic_token'))
 
   const login = async (username, password) => {
     const params = new URLSearchParams()
@@ -13,12 +13,12 @@ export function AuthProvider({ children }) {
     const r = await api.post('/auth/login', params, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     })
-    localStorage.setItem('sulla_token', r.data.access_token)
+    localStorage.setItem('ionic_token', r.data.access_token)
     setToken(r.data.access_token)
   }
 
   const logout = () => {
-    localStorage.removeItem('sulla_token')
+    localStorage.removeItem('ionic_token')
     setToken(null)
   }
 

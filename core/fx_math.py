@@ -1,5 +1,5 @@
 """
-FX-specific math helpers for Sulla.
+FX-specific math helpers for Ionic.
 
 Three concerns the equity/crypto engines didn't have:
 
@@ -19,14 +19,14 @@ Three concerns the equity/crypto engines didn't have:
    ported the magnitude-aware fp() helper). FX has the same issue
    inverted: $158.776 should NOT show as $158.77600.
 
-Sulla is unleveraged by design — see CLAUDE.md. So position sizing budgets
+Ionic is unleveraged by design — see CLAUDE.md. So position sizing budgets
 units from available USD-equivalent equity directly, not from margin
 allocation.
 """
 
 import logging
 
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 
 # ── Pair classification ─────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ def pip_value_usd(symbol: str, price: float, units: float = 1.0) -> float:
     For USD-base pairs (USD/JPY, USD/CHF, USD/CAD):
         pip_value = (pip_size × units) ÷ price      (convert through current rate)
     For non-USD cross-pairs (EUR/JPY, GBP/JPY etc.):
-        would need a USD conversion leg — not in the initial Sulla universe
+        would need a USD conversion leg — not in the initial Ionic universe
         so this case raises NotImplementedError for now.
 
     Args:
@@ -91,7 +91,7 @@ def pip_value_usd(symbol: str, price: float, units: float = 1.0) -> float:
             return 0.0
         return (p * units) / price
     # Non-USD crosses (EUR/JPY, GBP/CHF, etc.) — out of scope for the 7-major
-    # Sulla universe. When we add them in a later phase, route through the
+    # Ionic universe. When we add them in a later phase, route through the
     # base-currency / USD rate from the pricing snapshot.
     raise NotImplementedError(
         f"Cross-pair pip value (no USD leg): {symbol}. Add USD-conversion logic "
@@ -109,7 +109,7 @@ def calculate_units(
     position_cap_pct: float = 12.0,
 ) -> int:
     """
-    Compute Sulla's position size in Oanda units for an unleveraged spot trade.
+    Compute Ionic's position size in Oanda units for an unleveraged spot trade.
 
     Sizing logic:
         risk_usd      = equity_usd × risk_pct%

@@ -1,5 +1,5 @@
 """
-Sulla — Phase 4 engine.
+Ionic — Phase 4 engine.
 
 Phase 3 (consensus + shadow trading + FX math) + Phase 3b (Telegram bot)
 + Phase 4 (macro calendar blackout via ForexFactory feed).
@@ -58,7 +58,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 # ─── Paths + secrets ────────────────────────────────────────────────────────
 HEARTBEAT_PATH    = Path(os.environ.get('HEARTBEAT_PATH',    '/app/data/.engine_heartbeat'))
@@ -216,7 +216,7 @@ async def _maybe_send_reveille() -> None:
     Daily "good morning" greeting. Fires once per calendar day after 07:30 in
     the user's local Mountain time IF the FX market is currently open. This
     matches Anton/Tiberius's once-per-day cadence so all three bots feel
-    consistent — but Sulla's guard is FX-specific (closed Sat all-day,
+    consistent — but Ionic's guard is FX-specific (closed Sat all-day,
     closed Sun before 17:00 ET, closed Fri after 17:00 ET) per
     execution.is_market_open().
     """
@@ -1110,7 +1110,7 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_apply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /apply [PAIR] — Authorize a pending stop-loss ratchet. Parity stub with
-    Tiberius. Sulla's shadow exit engine auto-ratchets on each cycle today,
+    Tiberius. Ionic's shadow exit engine auto-ratchets on each cycle today,
     so there's nothing queued for manual approval. Stays in the command set
     for live-mode parity once Oanda execution wires in operator-confirmation
     flow for real stop-order moves.
@@ -1119,7 +1119,7 @@ async def cmd_apply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_html(
         "🔄 <b>No pending ratchets</b>\n"
-        "Sulla auto-applies trailing-stop moves in shadow mode. This command "
+        "Ionic auto-applies trailing-stop moves in shadow mode. This command "
         "becomes meaningful once live Oanda execution is wired and stop "
         "ratchets require operator confirmation."
     )
@@ -1407,7 +1407,7 @@ async def trading_loop_async() -> None:
         logger.warning(f"init_risk_state() failed (continuing): {e}")
 
     if market_data.get_client() is None:
-        logger.warning("Sulla running without Oanda credentials — trading idle.")
+        logger.warning("Ionic running without Oanda credentials — trading idle.")
 
     config: dict = {}
     while not _shutting_down:
@@ -1471,7 +1471,7 @@ async def trading_loop_async() -> None:
 async def main_async() -> None:
     global _bot
     _install_signal_handlers()
-    logger.info("=== Sulla Phase 4 engine starting ===")
+    logger.info("=== Ionic Phase 4 engine starting ===")
 
     telegram_token = secrets.get('telegram_bot_token')
     telegram_user  = secrets.get('telegram_user_id')
@@ -1534,7 +1534,7 @@ async def main_async() -> None:
         logger.warning(f"set_my_commands failed (non-fatal): {e}")
 
     # Boot announcement. The boot greeting and the daily reveille serve the
-    # same "Sulla is alive" purpose, so when boot fires we suppress the
+    # same "Ionic is alive" purpose, so when boot fires we suppress the
     # reveille for the rest of the day (otherwise a mid-morning restart
     # would deliver two back-to-back greetings).
     global _last_reveille_day

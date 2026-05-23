@@ -1,5 +1,5 @@
 """
-Macro-event calendar + blackout check for Sulla.
+Macro-event calendar + blackout check for Ionic.
 
 The FX equivalent of Anton's earnings blackout. The big single-event movers
 (NFP, FOMC, CPI, ECB / BoJ / BoE rate decisions) routinely produce stop-
@@ -18,7 +18,7 @@ Why ForexFactory:
     pair-name math
   - Stable schema for ~8 years now
   - Same data every retail FX bot uses; if it goes down it's industry-wide
-    news, not a Sulla-specific issue
+    news, not a Ionic-specific issue
 
 Trade-offs:
   - Unofficial endpoint; could be moved or deprecated without notice. We
@@ -43,7 +43,7 @@ from typing import Optional
 
 import requests
 
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 
 _FEED_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -70,7 +70,7 @@ def _fetch_now() -> list[dict]:
     """
     resp = requests.get(
         _FEED_URL,
-        headers={"User-Agent": "Mozilla/5.0 (Sulla FX bot)"},
+        headers={"User-Agent": "Mozilla/5.0 (Ionic FX bot)"},
         timeout=_FETCH_TIMEOUT,
     )
     resp.raise_for_status()

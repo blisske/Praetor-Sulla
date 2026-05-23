@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # ==============================================================================
-# SULLA V1 - CONFIGURATION & SECRETS MANAGER (The Rulebook)
+# IONIC V1 - CONFIGURATION & SECRETS MANAGER (The Rulebook)
 # Loads FX (Oanda) secrets from .env and dynamic trading parameters from
 # Config.yaml. The Oanda v20 broker client itself is constructed in the
 # broker adapter (Phase 2+); this module is config/secrets only.

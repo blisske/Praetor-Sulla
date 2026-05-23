@@ -1,4 +1,4 @@
-// sw.js — PWA service worker for Sulla dashboard.
+// sw.js — PWA service worker for Ionic dashboard.
 //
 // Strategy:
 //   /api/* and /ws    → NetworkOnly (real-time trading data, never cached)
@@ -9,7 +9,7 @@
 // dashboard reloads inside the browser tab; from the user's perspective it
 // just feels like the site was already up to date.
 
-const CACHE = 'sulla-v1';
+const CACHE = 'ionic-v1';
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/pwa-192x192.png', '/pwa-512x512.png'];
 
 self.addEventListener('install', (e) => {

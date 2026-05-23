@@ -6,8 +6,8 @@
 # building both targets reuses 99% of layer cache.
 #
 # Build:
-#   docker build --target engine -t sulla-engine .
-#   docker build --target api    -t sulla-api    .
+#   docker build --target engine -t ionic-engine .
+#   docker build --target api    -t ionic-api    .
 #
 # In docker-compose.yml each service points at its target via build.target.
 
@@ -57,11 +57,11 @@ COPY api/  /app/api/
 # with --build-arg APP_UID=...
 ARG APP_UID=1000
 ARG APP_GID=1000
-RUN groupadd --gid ${APP_GID} sulla \
- && useradd  --uid ${APP_UID} --gid ${APP_GID} --create-home --shell /bin/bash sulla \
+RUN groupadd --gid ${APP_GID} ionic \
+ && useradd  --uid ${APP_UID} --gid ${APP_GID} --create-home --shell /bin/bash ionic \
  && mkdir -p /app/data \
- && chown -R sulla:sulla /app
-USER sulla
+ && chown -R ionic:ionic /app
+USER ionic
 
 
 # ─── Engine target: trading daemon + Telegram bot ───────────────────────────
@@ -93,5 +93,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${AGENT_PORT:-8002}/api/health" || exit 1
 
 # Bind 0.0.0.0 so Docker's bridge-network port publishing actually reaches us.
-# AGENT_PORT defaults to 8002 for Sulla (Tiberius=8000, Anton=8001, Sulla=8002).
+# AGENT_PORT defaults to 8002 for Ionic (Tiberius=8000, Anton=8001, Ionic=8002).
 CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${AGENT_PORT:-8002}"]

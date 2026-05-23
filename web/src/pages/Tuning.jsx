@@ -6,7 +6,7 @@ import CandidateDetailModal from '../components/CandidateDetailModal.jsx'
 const BLUE = "#3B82F6"
 
 const MASTER_TIP = (
-  "Sulla tunes its own parameters from live shadow performance. " +
+  "Ionic tunes its own parameters from live shadow performance. " +
   "Lifecycle: (1) gate — a symbol needs 10+ closed shadow trades before any proposal can fire. " +
   "(2) candidate selection — the tuner picks one parameter and one bounded candidate value per cycle. " +
   "(3) shadow validation — the candidate must accumulate 10 more closed trades while running in shadow. " +

@@ -1,33 +1,33 @@
-# Sulla — three-container stack.
+# Ionic — three-container stack.
 #
 # Run from the swarm root (~/swarm/), which `include:`s this file alongside
-# Anton, Tiberius, Milton, and Fixit. Running compose from ~/swarm/sulla/repo/
+# Anton, Tiberius, Milton, and Fixit. Running compose from ~/swarm/ionic/repo/
 # directly creates a different compose project that collides with the
 # swarm-managed container_name declarations — don't do it.
 #
 # Host prereqs (one-time):
-#   1. mkdir -p ~/swarm/sulla/data
-#   2. cp /path/to/Config.yaml ~/swarm/sulla/data/Config.yaml
-#   3. Create ~/swarm/sulla/.env with the runtime secrets (Oanda token + account,
+#   1. mkdir -p ~/swarm/ionic/data
+#   2. cp /path/to/Config.yaml ~/swarm/ionic/data/Config.yaml
+#   3. Create ~/swarm/ionic/.env with the runtime secrets (Oanda token + account,
 #      Telegram, JWT, bcrypt password hashes)
 
 services:
 
   # ─── Trading daemon + Telegram bot ───────────────────────────────────────
-  sulla-engine:
+  ionic-engine:
     build:
       context: .
       dockerfile: Dockerfile
       target: engine
-    image: sulla-engine:latest
-    container_name: sulla-engine
+    image: ionic-engine:latest
+    container_name: ionic-engine
     restart: unless-stopped
     init: true                          # docker injects tini as PID 1
     env_file:
-      - ${SULLA_ENV_FILE:-./.env}       # secrets — never committed
+      - ${IONIC_ENV_FILE:-./.env}       # secrets — never committed
     environment:
-      AGENT_NAME:         sulla
-      SQLITE_PATH:        /app/data/sulla.db
+      AGENT_NAME:         ionic
+      SQLITE_PATH:        /app/data/ionic.db
       CONFIG_PATH:        /app/data/Config.yaml
       RESTART_FLAG_PATH:  /app/data/.restart_engine
       HEARTBEAT_PATH:     /app/data/.engine_heartbeat
@@ -38,11 +38,11 @@ services:
       # SQLite + Config.yaml + restart flag + heartbeat all live in one
       # shared mount so the API container can see them too. Config.yaml
       # being on the bind mount means edits survive image rebuilds.
-      - ${SULLA_DATA_DIR:-./data}:/app/data
+      - ${IONIC_DATA_DIR:-./data}:/app/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - sulla-net
+      - ionic-net
     logging:
       driver: json-file
       options:
@@ -50,31 +50,31 @@ services:
         max-file: "3"
 
   # ─── FastAPI dashboard backend ───────────────────────────────────────────
-  sulla-api:
+  ionic-api:
     build:
       context: .
       dockerfile: Dockerfile
       target: api
-    image: sulla-api:latest
-    container_name: sulla-api
+    image: ionic-api:latest
+    container_name: ionic-api
     restart: unless-stopped
     init: true
     env_file:
-      - ${SULLA_ENV_FILE:-./.env}
+      - ${IONIC_ENV_FILE:-./.env}
     environment:
-      AGENT_NAME:         sulla
+      AGENT_NAME:         ionic
       AGENT_HOST:         "0.0.0.0"
       AGENT_PORT:         "8002"
-      SQLITE_PATH:        /app/data/sulla.db
+      SQLITE_PATH:        /app/data/ionic.db
       DEMO_SQLITE_PATH:   /app/core/demo_data.db    # baked into image
       CONFIG_PATH:        /app/data/Config.yaml
       RESTART_FLAG_PATH:  /app/data/.restart_engine
       LMSTUDIO_BASE_URL:  ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
-      CORS_ORIGINS:       ${CORS_ORIGINS:-http://localhost,http://192.168.0.135,https://sulla.blisske.hopto.org}
+      CORS_ORIGINS:       ${CORS_ORIGINS:-http://localhost,http://192.168.0.135,https://ionic.blisske.hopto.org}
       PYTHONUNBUFFERED:   "1"
       TZ:                 ${TZ:-America/Denver}
     volumes:
-      - ${SULLA_DATA_DIR:-./data}:/app/data
+      - ${IONIC_DATA_DIR:-./data}:/app/data
     ports:
       # Loopback-only publish — the API isn't reachable from the LAN
       # (Traefik fronts the web container, which proxies to API internally).
@@ -83,22 +83,22 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - sulla-net
+      - ionic-net
     depends_on:
-      - sulla-engine
+      - ionic-engine
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  # ─── React SPA + nginx (proxies /api and /ws to sulla-api) ───────────────
-  sulla-web:
+  # ─── React SPA + nginx (proxies /api and /ws to ionic-api) ───────────────
+  ionic-web:
     build:
       context: ./web
       dockerfile: Dockerfile
-    image: sulla-web:latest
-    container_name: sulla-web
+    image: ionic-web:latest
+    container_name: ionic-web
     restart: unless-stopped
     init: true
     # During the swarm-edge migration, Traefik (in the swarm-root compose)
@@ -110,10 +110,10 @@ services:
     ports:
       - "8085:80"
     networks:
-      - sulla-net          # private: lets web reach sulla-api by service DNS
+      - ionic-net          # private: lets web reach ionic-api by service DNS
       - swarm-net          # shared: lets Traefik route inbound traffic to web
     depends_on:
-      - sulla-api
+      - ionic-api
     logging:
       driver: json-file
       options:
@@ -121,18 +121,18 @@ services:
         max-file: "3"
     labels:
       # Belt-and-braces — the canonical routing comes from the file provider
-      # at ~/swarm/proxy/dynamic/sulla.yml, but these labels make the same
+      # at ~/swarm/proxy/dynamic/ionic.yml, but these labels make the same
       # route discoverable if the provider model changes later.
       - "traefik.enable=true"
       - "traefik.docker.network=swarm-net"
-      - "traefik.http.routers.sulla.rule=Host(`${SULLA_HOSTNAME:-sulla.blisske.hopto.org}`)"
-      - "traefik.http.routers.sulla.entrypoints=websecure"
-      - "traefik.http.routers.sulla.tls=true"
-      - "traefik.http.routers.sulla.tls.certresolver=letsencrypt"
-      - "traefik.http.services.sulla.loadbalancer.server.port=80"
+      - "traefik.http.routers.ionic.rule=Host(`${IONIC_HOSTNAME:-ionic.blisske.hopto.org}`)"
+      - "traefik.http.routers.ionic.entrypoints=websecure"
+      - "traefik.http.routers.ionic.tls=true"
+      - "traefik.http.routers.ionic.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ionic.loadbalancer.server.port=80"
 
 networks:
-  sulla-net:
+  ionic-net:
     driver: bridge
   # External: created once at the swarm level via `docker network create
   # swarm-net`. Shared by Traefik + each bot's *-web container so Traefik

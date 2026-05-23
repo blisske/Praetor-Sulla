@@ -236,7 +236,7 @@ function TradeRow({ trade }) {
   )
 }
 
-// Parses Sulla's verdict tag — see core/strategy.py:144-200 + core/main.py:119
+// Parses Ionic's verdict tag — see core/strategy.py:144-200 + core/main.py:119
 // for the exact strings written at trade time. Returns null when the verdict
 // doesn't carry the consensus tag (e.g. legacy or manual trades).
 function parseVerdict(verdict) {
@@ -297,7 +297,7 @@ function AnatomyPanel({ trade }) {
 
   // VOL: "OK ..." passes, anything else fails (per strategy.py:163-167)
   const volPass = /^OK\b/.test(parsed.vol)
-  // RSI: RISING passes for long entries (Sulla aborts on BEARISH so all entries are long)
+  // RSI: RISING passes for long entries (Ionic aborts on BEARISH so all entries are long)
   const rsiPass = /^RISING/i.test(parsed.rsi)
   // ADX: regime-appropriate strength passes (per strategy.py:187-200)
   const adxPass = /STRONG\+RISING|LOW\+FALLING/.test(parsed.adx)
@@ -318,7 +318,7 @@ function AnatomyPanel({ trade }) {
           <HelpTip
             position="bottom"
             width={280}
-            text="Sulla's 2+1+1 consensus chain: a paradigm fires, 2-of-3 supporting signals must confirm, and the LLM cannot return BEARISH. The total must clear the configured min_consensus to enter."
+            text="Ionic's 2+1+1 consensus chain: a paradigm fires, 2-of-3 supporting signals must confirm, and the LLM cannot return BEARISH. The total must clear the configured min_consensus to enter."
           />
         </h2>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -393,7 +393,7 @@ export default function Dashboard() {
     })
 
     const proto  = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const token  = localStorage.getItem('sulla_token') || ''
+    const token  = localStorage.getItem('ionic_token') || ''
     const socket = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`)
     socket.onmessage = e => {
       const d = JSON.parse(e.data)

@@ -285,7 +285,7 @@ export default function Market() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="rounded-xl p-4" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
             <div className="text-xs uppercase tracking-wider mb-3 flex items-center" style={{ color:'var(--text-muted)' }}>
-              RSI (14)<HelpTip text="Relative Strength Index. Under 30 = oversold. Above 70 = overbought. Sulla uses RSI to confirm entry signals on 30-min bars." />
+              RSI (14)<HelpTip text="Relative Strength Index. Under 30 = oversold. Above 70 = overbought. Ionic uses RSI to confirm entry signals on 30-min bars." />
             </div>
             <div className="text-2xl font-bold mb-2" style={{ color:'var(--text-primary)' }}>{sym.rsi?.toFixed(1)}</div>
             <div className="flex items-center gap-2">
@@ -299,7 +299,7 @@ export default function Market() {
 
           <div className="rounded-xl p-4" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
             <div className="text-xs uppercase tracking-wider mb-3 flex items-center" style={{ color:'var(--text-muted)' }}>
-              ADX (14)<HelpTip text="Average Directional Index. Measures trend strength. Above 25 = trending. Sulla uses ADX to route between paradigms." />
+              ADX (14)<HelpTip text="Average Directional Index. Measures trend strength. Above 25 = trending. Ionic uses ADX to route between paradigms." />
             </div>
             <div className="text-2xl font-bold mb-2" style={{ color:'var(--text-primary)' }}>{sym.adx?.toFixed(1)}</div>
             <div className="flex-1 h-1.5 rounded-full overflow-hidden mt-1" style={{ background:'var(--bg-elevated)' }}>
@@ -310,7 +310,7 @@ export default function Market() {
 
           <div className="rounded-xl p-4" style={{ background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
             <div className="text-xs uppercase tracking-wider mb-3 flex items-center" style={{ color:'var(--text-muted)' }}>
-              Trend<HelpTip text="EMA crossover direction. BULL = fast EMA above slow. BEAR = fast below slow. Sulla only takes long entries aligned with trend." />
+              Trend<HelpTip text="EMA crossover direction. BULL = fast EMA above slow. BEAR = fast below slow. Ionic only takes long entries aligned with trend." />
             </div>
             <div className="flex items-center gap-2 mt-2">
               <TrendIcon trend={sym.trend} />

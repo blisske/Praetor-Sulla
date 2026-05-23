@@ -1,5 +1,5 @@
 """
-Minimal Oanda v20 REST client for Sulla.
+Minimal Oanda v20 REST client for Ionic.
 
 Deliberately avoids the official `oandapyV20` SDK — fewer moving parts to debug
 through, and we only need a handful of endpoints. Uses `requests` directly with
@@ -19,7 +19,7 @@ References:
   https://developer.oanda.com/rest-live-v20/account-ep/
   https://developer.oanda.com/rest-live-v20/pricing-ep/
 
-Symbol convention: Sulla's internal universe uses standard FX notation
+Symbol convention: Ionic's internal universe uses standard FX notation
 ("EUR/USD", "USD/JPY"). Oanda's API uses underscore notation ("EUR_USD",
 "USD_JPY"). The client transparently converts at the boundary so the rest
 of the engine never has to think about it.
@@ -31,11 +31,11 @@ from typing import Optional
 
 import requests
 
-logger = logging.getLogger("sulla")
+logger = logging.getLogger("ionic")
 
 
 # ── Granularity mapping ─────────────────────────────────────────────────────
-# Sulla's internal timeframe strings (matching Anton/Tiberius convention)
+# Ionic's internal timeframe strings (matching Anton/Tiberius convention)
 # mapped to Oanda's granularity codes.
 _GRANULARITY_MAP = {
     "5m":   "M5",
@@ -177,7 +177,7 @@ class OandaClient:
         Args:
             symbol: "EUR/USD" or "EUR_USD" — either works.
             granularity: Oanda granularity code ("H1", "M30", "D", etc.) or
-                Sulla's internal timeframe string ("1h", "30m", "1d"); the
+                Ionic's internal timeframe string ("1h", "30m", "1d"); the
                 latter is mapped before the request.
             count: Number of bars to return (max 5000).
             price: "M" = mid, "B" = bid, "A" = ask, or combinations ("MBA").

@@ -14,7 +14,7 @@ ai_agent:
 # ── Broker (Phase 2) ─────────────────────────────────────────────────────────
 # Oanda v20 REST API. Practice account is free + unlimited; live account is
 # paid + funded. Token + account ID + environment all come from the .env file.
-# Sulla deliberately trades unleveraged (1:1 sizing) — see Risk section.
+# Ionic deliberately trades unleveraged (1:1 sizing) — see Risk section.
 oanda:
   shadow_mode: true   # No real Oanda orders. Engine logs paper trades to DB.
   environment: practice   # "practice" or "live"; .env's OANDA_ENVIRONMENT wins.

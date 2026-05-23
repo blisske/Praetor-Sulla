@@ -1,7 +1,68 @@
-# WORKING_STATE.md — Sulla V1 Session Log
+# WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-21 (Ionic engine bug fix — drawdown spam)
+> Last updated: 2026-05-23 (file-structure cleanup: sulla → ionic)
+
+---
+
+## 2026-05-23 — File-structure cleanup: sulla → ionic
+
+Final naming pass to match the 2026-05-21 brand rebrand. All three
+levels in one cutover. Same recipe Corinthian + Doric got the day
+before (see Corinthian commit 1ef7da2 / Doric commit c4a302f for the
+template).
+
+**LEVEL 3 — host filesystem:**
+- `~/swarm/sulla/` → `~/swarm/ionic/` (inode-preserving mv)
+- `data/sulla.db` → `data/ionic.db` — 13 trades + 1 open position +
+  11,093 market_states rows intact (verified pre/post)
+
+**LEVEL 2 — containers + compose + Traefik:**
+- Containers: `sulla-{engine,api,web}` → `ionic-*`
+- Network: `sulla-net` → `ionic-net`
+- Image tags: `sulla-*:latest` → `ionic-*:latest`
+- Linux user inside container: `sulla` → `ionic` (UID 1000 unchanged)
+- Env vars: `SULLA_DATA_DIR / SULLA_ENV_FILE / SULLA_HOSTNAME` →
+  `IONIC_*` in `~/swarm/.env`; added `IONIC_CORS_ORIGINS` allowing
+  legacy `sulla.blisske.hopto.org` so old bookmarks keep working
+- Traefik: `~/swarm/proxy/dynamic/sulla.yml` → `ionic.yml`. Router +
+  service names renamed. Host() chain preserves all three aliases:
+  - `ionic.foundationbots.com` (canonical, real domain)
+  - `ionic.blisske.hopto.org` (legacy alias from brand pass)
+  - `sulla.blisske.hopto.org` (legacy alias from pre-rebrand)
+- Swarm-root `docker-compose.yml` include path updated to
+  `./ionic/repo/docker-compose.yml`
+
+**LEVEL 1 — source/docs:**
+- 47 source files swept via bulk sed (`sulla → ionic`, `Sulla → Ionic`,
+  `SULLA → IONIC`), with `Praetor-Sulla` restored in WORKING_STATE.md
+  narrative entries per the brand-pass preservation note
+- All in-source default paths flipped, getLogger names to `ionic`,
+  Dockerfile USER `ionic`, README/CLAUDE.md paths
+- A handful of WORKING_STATE.md historical-narrative lines hand-corrected
+  after the sed (`Sulla → **Ionic**` got mangled to `Ionic → **Ionic**`,
+  same with the Telegram flavor-line attributions)
+- `CLAUDE.md` "How to Resume" section: stale cross-repo paths
+  `~/swarm/anton/repo` + `~/swarm/tiberius/repo` → `~/swarm/doric/repo`
+  + `~/swarm/corinthian/repo` (those bots themselves got renamed yesterday)
+
+**Live verification post-cutover:**
+- `ionic-engine` + `ionic-api` + `ionic-web` all Up + healthy
+- 13 trades + 1 open position + 11,093 market_states intact in
+  `ionic.db` (WAL mode)
+- Engine pricing all 7 majors: EUR/USD, GBP/USD, AUD/USD, NZD/USD,
+  USD/JPY, USD/CHF, USD/CAD — RANGING regime on all, BEAR/BULL split
+  consistent with current macro tape
+- Telegram bot reachable (`/getUpdates 200`)
+- Doric + Corinthian unaffected (user's signup test on Corinthian still
+  running — `corinthian-engine-13` per-user engine spawned by the
+  provisioner stayed up through both renames)
+
+**Intentionally preserved:**
+- `Praetor-Sulla` in historical narrative entries of this file —
+  reflects the actual clone-source name at the time
+- `sulla.blisske.hopto.org` in Traefik Host() chain + CORS allowlist
+  — legacy bookmark alias
 
 ---
 
@@ -47,11 +108,11 @@ Cross-swarm rebrand. Platform "Praetor" → "Foundation"; bots renamed to column
 
 - `web/index.html`, `web/public/manifest.webmanifest` — `<title>` and PWA name/short_name/description renamed.
 - `web/public/favicon.svg` + `.ico` + `pwa-{64,192,512}*.png` + `maskable-icon-512x512.png` + `apple-touch-icon-180x180.png` — gold winged-P retired. New mark is the **Ionic column capital** (abacus + twin volutes + egg-and-dart band + fluted shaft) in electric-blue gradient (`#93C5FD → #3B82F6 → #1D4ED8`). PNGs and multi-res `.ico` rendered from the new SVG via a one-shot `nginx:alpine` container with `imagemagick` + `librsvg` apk'd at runtime. Reusable script at `/tmp/regen-favicons.sh`.
-- `web/src/components/Layout.jsx` — local `PraetorMark` function renamed to `FoundationMark` and rewritten to render the Ionic capital (with the volutes enlarged to dominate the viewBox after a follow-up sizing tweak). Sidebar wordmark `PRAETOR` → `FOUNDATION`; subtitle `Sulla · FX` → `Ionic · FX`. Same in the mobile topbar.
-- `web/src/pages/Login.jsx` — `FoundationMark` glyph; wordmark/subtitle/body copy renamed (`SULLA · TRADFI` → `IONIC · FX`, also fixing the legacy "TRADFI" copy-paste from the Anton fork; "Sign in to your Sulla trading dashboard." → "...Ionic..."). Top-left right-panel label `Praetor` → `Foundation`; top-right `Sulla · FX` → `Ionic · FX`. Right-panel currency-glyph and multi-pair chart decorations were already blue-themed — no recolor needed.
-- `web/src/pages/Dashboard.jsx` — market-feed strip `Sulla · Live Market Feed · Alpaca` → `Ionic · Live Market Feed · Oanda` (also fixing a stale Anton-fork copy-paste — Ionic uses Oanda, not Alpaca).
+- `web/src/components/Layout.jsx` — local `PraetorMark` function renamed to `FoundationMark` and rewritten to render the Ionic capital (with the volutes enlarged to dominate the viewBox after a follow-up sizing tweak). Sidebar wordmark `PRAETOR` → `FOUNDATION`; subtitle `Ionic · FX` → `Ionic · FX`. Same in the mobile topbar.
+- `web/src/pages/Login.jsx` — `FoundationMark` glyph; wordmark/subtitle/body copy renamed (`IONIC · TRADFI` → `IONIC · FX`, also fixing the legacy "TRADFI" copy-paste from the Anton fork; "Sign in to your Ionic trading dashboard." → "...Ionic..."). Top-left right-panel label `Praetor` → `Foundation`; top-right `Ionic · FX` → `Ionic · FX`. Right-panel currency-glyph and multi-pair chart decorations were already blue-themed — no recolor needed.
+- `web/src/pages/Dashboard.jsx` — market-feed strip `Ionic · Live Market Feed · Alpaca` → `Ionic · Live Market Feed · Oanda` (also fixing a stale Anton-fork copy-paste — Ionic uses Oanda, not Alpaca).
 - `web/src/pages/Config.jsx` — every bot-name reference in tooltip help text and `X-specific` badges renamed (Sulla → Ionic, plus the cross-reference Tiberius → Corinthian).
-- `web/src/pages/Guide.jsx` — prose-wide rename (Sulla → Ionic, Anton → Doric, Tiberius → Corinthian, Praetor → Foundation), preserving code identifiers — `blisske/Foundation-Ionic` GitHub URL, container names, `~/swarm/sulla/` paths, DB filenames. Done by a delegated general-purpose agent with explicit preservation rules.
+- `web/src/pages/Guide.jsx` — prose-wide rename (Sulla → Ionic, Anton → Doric, Tiberius → Corinthian, Praetor → Foundation), preserving code identifiers — `blisske/Foundation-Ionic` GitHub URL, container names, `~/swarm/ionic/` paths, DB filenames. Done by a delegated general-purpose agent with explicit preservation rules.
 - `core/main.py` — Telegram surface: boot greeting `📈 Sulla (FX) ONLINE` → `📈 Ionic (FX) ONLINE`; `/help` header `📖 Sulla — Command Reference` → `📖 Ionic — Command Reference`; daily heartbeat "Sulla is ONLINE and scanning the seven majors." → "Ionic..."; reveille flavor lines `"The forum trades in seven tongues. Sulla listens to them all."` / `"London bid. New York offered. Sulla scanning."` / `"Carry trades carry. Sulla follows."` → Ionic equivalents (rest of the Roman/imperial flavor lines kept verbatim — they still fit the broader classical theme).
 
 **Foundation landing page (NEW, swarm-level — not Ionic-specific):**
@@ -61,7 +122,7 @@ Cross-swarm rebrand. Platform "Praetor" → "Foundation"; bots renamed to column
 
 **Hostname migration (alias mode):**
 
-- `~/swarm/proxy/dynamic/sulla.yml` — Host rule extended to match `ionic.blisske.hopto.org` (new primary) AND `sulla.blisske.hopto.org` (legacy alias). Fresh Let's Encrypt cert issued for the Ionic name (valid through 2026-08-19). Foundation landing card href repointed to the new URL. Drop the `Host("sulla.…")` clause after ~30 days when bookmarks have settled.
+- `~/swarm/proxy/dynamic/ionic.yml` — Host rule extended to match `ionic.blisske.hopto.org` (new primary) AND `ionic.blisske.hopto.org` (legacy alias). Fresh Let's Encrypt cert issued for the Ionic name (valid through 2026-08-19). Foundation landing card href repointed to the new URL. Drop the `Host("ionic.…")` clause after ~30 days when bookmarks have settled.
 
 **Operator action still required (BotFather, off-host):**
 
@@ -75,7 +136,7 @@ Until pasted into BotFather, the Telegram client's contact list still shows the 
 
 **Not renamed (intentionally — infrastructure-internal):**
 
-`sulla-engine` / `sulla-api` / `sulla-web` containers, `sulla-net` network, `sulla.db` (+ WAL sidecars), `~/swarm/sulla/` bind-mount path, Python module names, env vars, function names, all stdout log messages. High blast radius (Traefik routes, nginx config, env vars, runbook commands, CI/CD) and zero user benefit — the brand-visible layer was the goal; the plumbing stays.
+`ionic-engine` / `ionic-api` / `ionic-web` containers, `ionic-net` network, `ionic.db` (+ WAL sidecars), `~/swarm/ionic/` bind-mount path, Python module names, env vars, function names, all stdout log messages. High blast radius (Traefik routes, nginx config, env vars, runbook commands, CI/CD) and zero user benefit — the brand-visible layer was the goal; the plumbing stays.
 
 **Postscript (later 2026-05-21):** Follow-up pass renamed the GitHub repo too — `blisske/Praetor-Sulla` → `blisske/Foundation-Ionic` — via the REST API (operator-provided PAT, single-use, revoked after). Local `origin` remote updated. GitHub's permanent redirects keep the old clone URL working indefinitely. All in-code references (`CLAUDE.md`, `README.md`, `Guide.jsx`, and the cross-references in the Doric and Corinthian repos) updated to the new URL in the same sweep.
 
@@ -83,7 +144,7 @@ Until pasted into BotFather, the Telegram client's contact list still shows the 
 
 ## 2026-05-20 — Tuning page: Inspect candidate + manual Reject
 
-Cross-swarm push (Anton + Tiberius + Sulla all got this). Sulla has no
+Cross-swarm push (Anton + Tiberius + Ionic all got this). Ionic has no
 tuning candidates yet (`tuning_log` empty — FX cycle hasn't accumulated
 enough closes per (symbol × paradigm) to trigger one), but the surface is
 in place for when it does.
@@ -114,10 +175,10 @@ the same cooling-off as auto-rejection.
   - `POST /api/tuning/candidate/{log_id}/reject` — admin-only.
 
 - `web/src/components/CandidateDetailModal.jsx` (NEW) — shared modal,
-  byte-identical across Anton/Sulla/Tiberius (drift-detector parity).
+  byte-identical across Anton/Ionic/Tiberius (drift-detector parity).
   Renders proposal summary, driving + recent trades, optional reason
   textarea, confirm-to-reject flow. GREEN/RED are semantic (positive/
-  negative), not brand — Sulla's electric-blue header stays untouched.
+  negative), not brand — Ionic's electric-blue header stays untouched.
 
 - `web/src/pages/Tuning.jsx`:
   - Validation rows now clickable (preserves BLUE brand styling).
@@ -131,7 +192,7 @@ the same cooling-off as auto-rejection.
 - `GET /api/tuning/candidate/999` → 404 (correct empty-state behavior).
 - `POST /api/tuning/candidate/999/reject` (admin) → 404 (correct, no row
   to update). Demo-user POST returns 403 via existing dispatch.
-- All three Sulla containers healthy after rebuild.
+- All three Ionic containers healthy after rebuild.
 
 **Operator UX:** when the first FX candidate eventually fires (most likely
 on a USD-quote pair after 10 closes accumulate on one paradigm), the
@@ -140,13 +201,13 @@ with the driving trades; Reject button kills it.
 
 ## 2026-05-20 — Icon recolor: electric blue
 
-The PWA install icons for Anton, Tiberius, and Sulla were all the gold
+The PWA install icons for Anton, Tiberius, and Ionic were all the gold
 PraetorMark P-with-wings — visually identical on the home screen. Recolored
 each bot's `favicon.svg` to its own brand palette and regenerated the PWA
-PNG icons. Sulla is now electric blue, matching the brand color locked in
+PNG icons. Ionic is now electric blue, matching the brand color locked in
 during the Phase 3 login redesign.
 
-**Sulla: electric-blue gradient** — light `#93C5FD` → mid `#3B82F6`
+**Ionic: electric-blue gradient** — light `#93C5FD` → mid `#3B82F6`
 (matches the existing `--accent` in `index.css`) → dark `#1D4ED8`. Manifest
 + index.html `theme-color` were already `#3B82F6` from the original PWA
 push; no change needed there.
@@ -164,25 +225,25 @@ push; no change needed there.
 
 **User-side note:** an already-installed PWA will keep its cached gold icon
 until the home-screen entry is removed and the site re-installed. Long-press
-the icon → Remove → revisit `https://sulla.blisske.hopto.org` → Add to Home
+the icon → Remove → revisit `https://ionic.blisske.hopto.org` → Add to Home
 Screen.
 
 ## 2026-05-20 — PWA: dashboard installs as a phone app
 
-The Sulla dashboard is now installable as a Progressive Web App. On iOS/Android,
-the browser's Install prompt or "Add to Home Screen" produces a dedicated Sulla
+The Ionic dashboard is now installable as a Progressive Web App. On iOS/Android,
+the browser's Install prompt or "Add to Home Screen" produces a dedicated Ionic
 icon that launches the dashboard full-screen (no URL bar, no browser tabs), and
 the shell stays cached so it loads instantly + survives a brief offline blip.
 Dashboard content unchanged — this is the phone-as-app wrapper only.
 
 **What landed:**
-- `web/public/manifest.webmanifest` — `name: "Praetor · Sulla"`,
-  `short_name: "Sulla"`, `theme_color: "#3B82F6"` (matches the electric-blue
+- `web/public/manifest.webmanifest` — `name: "Praetor · Ionic"`,
+  `short_name: "Ionic"`, `theme_color: "#3B82F6"` (matches the electric-blue
   brand color locked in during the Phase 3 login redesign),
   `background_color: "#020617"`, `display: standalone`. Icons at 64/192/512 +
   maskable 512.
 - `web/public/sw.js` — minimal service worker (~35 lines), cache key
-  `sulla-v1`. Strategy:
+  `ionic-v1`. Strategy:
   - `/api/*` and `/ws` → NetworkOnly (real-time FX cycle data, never cached)
   - HTML navigation → NetworkFirst, fallback to cached shell when offline
   - Everything else → CacheFirst with background revalidate
@@ -204,8 +265,8 @@ Dashboard content unchanged — this is the phone-as-app wrapper only.
 - `curl -sI http://localhost:8085/pwa-192x192.png` → 200, `image/png`.
 - Served HTML contains all four PWA tags + #3B82F6 theme color.
 
-**Operator action to install:** open `https://sulla.blisske.hopto.org` on
-phone → share/menu → "Add to Home Screen" / "Install app". Sulla icon appears
+**Operator action to install:** open `https://ionic.blisske.hopto.org` on
+phone → share/menu → "Add to Home Screen" / "Install app". Ionic icon appears
 alongside Anton + Tiberius + Milton.
 
 **Same change landed simultaneously on Anton, Tiberius, Milton.** Cache key
@@ -222,7 +283,7 @@ reach for `vite-plugin-pwa` then.
 Confidence-restoration audit across strategy, sizing, tuning, and risk math
 in all three Praetor bots. Eight real bugs surfaced; all fixed.
 
-### Phase 1 (trade traces) — Sulla GBP/USD findings
+### Phase 1 (trade traces) — Ionic GBP/USD findings
 
 Traced only open position: trade id 1 SHADOW BUY 894 units GBP/USD @
 1.34182 (2026-05-18 16:02 UTC), VOLATILITY BREAKOUT, still open at
@@ -239,7 +300,7 @@ units, notional $1,199.59. Initial stop placement correct at
 - **`HOLD_AND_TIGHTEN` signal was computed but discarded.** When a
   TF/VB position's regime flips to RANGING (which GBP/USD did —
   ADX dropped from 37 to 14), the design intent is to tighten the
-  stop to ~1× ATR with a BE floor. Tiberius honored this; Sulla's
+  stop to ~1× ATR with a BE floor. Tiberius honored this; Ionic's
   exit cycle only branched on `TAKE_PROFIT`, falling through to
   the normal ratchet. **Fix:** added a `HOLD_AND_TIGHTEN` handler
   at `core/main.py:338-357` between TAKE_PROFIT and the trailing
@@ -253,15 +314,15 @@ units, notional $1,199.59. Initial stop placement correct at
 ### Phase 2 (per-paradigm code audit) — TREND FOLLOWING cross-bot
 
 TF trigger byte-identical across bots. Found four divergences in
-supporting infrastructure; two fixed in Sulla, one deferred, one
+supporting infrastructure; two fixed in Ionic, one deferred, one
 ported:
 
 - **Volume threshold was hardcoded `0.8`** at `core/strategy.py:173`.
   Tiberius reads from `consensus.volume_participation_pct`. Fixed
-  Sulla to use the same config path with `0.80` default.
-- **VB RSI direction was paradigm-agnostic.** Sulla scored
+  Ionic to use the same config path with `0.80` default.
+- **VB RSI direction was paradigm-agnostic.** Ionic scored
   "RSI rising (any +delta)" as +1 for VB the same as for TF/MR/LS.
-  Tiberius requires `delta ≥ 2` ("SURGING"). Fixed Sulla's
+  Tiberius requires `delta ≥ 2` ("SURGING"). Fixed Ionic's
   `check_supporting_signals` to branch on
   `strategy_type == "VOLATILITY BREAKOUT"` for the surging gate.
 - **MTF slope filter** (`block_strong_downtrend`): deferred —
@@ -287,21 +348,21 @@ ported:
 ### Phase 3 — tuner safety + bounds
 
 All eight safety surfaces verified clean and consistent across bots.
-Sulla tuner: no bugs. `tuning_log` empty (tuner has never proposed
+Ionic tuner: no bugs. `tuning_log` empty (tuner has never proposed
 a change yet). One Tiberius-specific bug fixed there (see Tiberius
 WORKING_STATE.md).
 
 ### Phase 4 — math spot-checks
 
-**One critical safety bug found and fixed in Sulla:**
+**One critical safety bug found and fixed in Ionic:**
 
-- **Sulla had no working drawdown safety net.** Both `equity_peak`
+- **Ionic had no working drawdown safety net.** Both `equity_peak`
   and `risk_state` tables were empty — nothing in the cycle was
   updating them. The `/resume` command and the `/report` cosmetic
   existed, but the *transitions* into ALERT/DERISK/HALT had no code
   path. With `peak_equity = 0`, `drawdown_pct` resolved to `0%`
   regardless of actual loss, so HALT could never have triggered.
-  Sulla was running with **no drawdown safety net**.
+  Ionic was running with **no drawdown safety net**.
 - **Fix:** ported Anton's tiered drawdown state machine verbatim
   into `_run_cycle` at `core/main.py:710-765`. Same NORMAL → ALERT →
   DERISK → HALT cascade with `recovery_pct` hysteresis. HALT
@@ -316,23 +377,23 @@ WORKING_STATE.md).
 
 Other math surfaces (profit-factor sentinel, win-rate handling,
 partial-sell exclusion in tuner queries) all verified correct on
-Sulla. No changes needed there.
+Ionic. No changes needed there.
 
 ### Stylistic divergences flagged but not fixed
-- Correlation multiplier: Sulla has none yet (Phase 1 scaffold area,
+- Correlation multiplier: Ionic has none yet (Phase 1 scaffold area,
   scheduled for future phase). When implemented, decide between
   Anton's lookup curve or Tiberius's linear formula — currently
   both produce identical outcomes at defaults.
 
 ### Soak plan
-Leave the current Sulla configuration alone for a week before
+Leave the current Ionic configuration alone for a week before
 flipping `strategy.partial_profit_taking.enabled: true`. Goal:
 establish a clean post-audit baseline with the new drawdown
 state machine actually running for a full FX week.
 
 ## 2026-05-19 — Tier 2 drift audit closeout
 
-Three Sulla findings closed:
+Three Ionic findings closed:
 
 1. **`position_size_usd` was dead column.** Yesterday's schema migration
    added the column for parity with Tiberius; the SHADOW BUY call sites
@@ -357,7 +418,7 @@ as backup scripts). Daily at 9 AM MDT.
 shapes.
 
 Known architectural drift is documented inline with reasons —
-FX-specific helpers, `/calendar` (Sulla-only) vs `/catalysts`
+FX-specific helpers, `/calendar` (Ionic-only) vs `/catalysts`
 (Tiberius-only) vs `/earnings` (Anton-only) commands, the existing
 inline-vs-helper pattern for MTF gate, etc.
 
@@ -372,12 +433,12 @@ inline-vs-helper pattern for MTF gate, etc.
 
 **Problem found:** `ConnectionManager.broadcast()` was dead code across all three Praetor bots — defined but never called. The WS endpoint's own `while True` tick loop was carrying data (5s polling), so the dashboard wasn't actually frozen, but there was no event-driven push for SHADOW BUY/SELL fills or risk-mode transitions.
 
-**What landed (Sulla — mirrors Anton's architecture, since both have a persisted `risk_state` table):**
+**What landed (Ionic — mirrors Anton's architecture, since both have a persisted `risk_state` table):**
 - `core/database.py` — added `pending_events` table (engine writes, API drains, DB-as-IPC same pattern as `.restart_engine`) + `emit_event()` helper. Wrapped `log_trade()` to auto-emit `trade` events for any `SHADOW ` action, and `update_risk_state()` to auto-emit `risk_transition` events on actual mode change.
 - `api/main.py` — added `_drain_pending_events()` background task (1s cadence, ships via `manager.broadcast()`, prunes >7d). Extended `ConnectionManager` to track `(ws, user)` tuples so drained events broadcast to admin only.
 - `web/src/pages/Dashboard.jsx` — `onmessage` now handles `trade`/`risk_transition`. New `LiveEventStrip` renders an ephemeral flash strip under the risk banner; trade events also refetch `/trades` and `/equity`.
 
-**Verified:** schema migrated, smoke-test event round-tripped end-to-end on `sulla.db`. The pipeline is ready for when Phase 2's Oanda integration produces the first real SHADOW BUY fill.
+**Verified:** schema migrated, smoke-test event round-tripped end-to-end on `ionic.db`. The pipeline is ready for when Phase 2's Oanda integration produces the first real SHADOW BUY fill.
 
 **Do not re-suggest:** `manager.broadcast()` is no longer dead code; the WS endpoint's 5s tick loop is intentionally kept as a safety net.
 
@@ -389,29 +450,29 @@ inline-vs-helper pattern for MTF gate, etc.
 |---|---|
 | Phase | **5 — FX Guide page rewritten (operator docs complete)** |
 | Engine mode | Full 5-min cycle: indicator fetch → shadow exit engine → 4-layer consensus → shadow buy/sell against the $10K paper ledger. No Oanda orders (shadow-only by design). |
-| Broker | Oanda v20 REST — client written, awaiting `OANDA_API_TOKEN` + `OANDA_ACCOUNT_ID` in `~/swarm/sulla/.env` |
+| Broker | Oanda v20 REST — client written, awaiting `OANDA_API_TOKEN` + `OANDA_ACCOUNT_ID` in `~/swarm/ionic/.env` |
 | Universe | EUR/USD, GBP/USD, AUD/USD, NZD/USD, USD/JPY, USD/CHF, USD/CAD (7 majors, hot-reloaded from Config.yaml each cycle) |
 | Timeframe | 1h |
-| Shadow ledger | Empty (`/app/data/sulla.db` schema initialized, no trades yet) |
-| Telegram | **Wired** — dedicated Sulla bot, full command set, autocomplete registered, trade-event notifications live |
-| Dashboard | Reachable at `http://192.168.0.135:8085/` (LAN debug) and `https://sulla.blisske.hopto.org/` (Traefik + Let's Encrypt) |
+| Shadow ledger | Empty (`/app/data/ionic.db` schema initialized, no trades yet) |
+| Telegram | **Wired** — dedicated Ionic bot, full command set, autocomplete registered, trade-event notifications live |
+| Dashboard | Reachable at `http://192.168.0.135:8085/` (LAN debug) and `https://ionic.blisske.hopto.org/` (Traefik + Let's Encrypt) |
 
 ---
 
 ## Phase 1 — Infrastructure Scaffold (2026-05-17)
 
 Cloned Anton's repo structure as the starting point, renamed everywhere
-(anton→sulla, ports 8001→8002 and 8080→8085), wired into the swarm.
+(anton→ionic, ports 8001→8002 and 8080→8085), wired into the swarm.
 
 ### What landed
 
-- **Compose stack** — three containers `sulla-engine` / `sulla-api` /
-  `sulla-web` with per-bot bridge net `sulla-net` and shared `swarm-net`
+- **Compose stack** — three containers `ionic-engine` / `ionic-api` /
+  `ionic-web` with per-bot bridge net `ionic-net` and shared `swarm-net`
   for Traefik. Container names `container_name:` baked in so the swarm-root
   compose project owns them.
-- **Ports** — sulla-api on `127.0.0.1:8002` (loopback debug),
-  sulla-web on `:8085` (LAN debug). 8084 was skipped because fixit-api owns
-  it. The canonical public ingress is Traefik at `sulla.blisske.hopto.org`.
+- **Ports** — ionic-api on `127.0.0.1:8002` (loopback debug),
+  ionic-web on `:8085` (LAN debug). 8084 was skipped because fixit-api owns
+  it. The canonical public ingress is Traefik at `ionic.blisske.hopto.org`.
 - **Engine** — `core/main.py` is a Phase 1 placeholder that touches
   `.engine_heartbeat`, watches `.restart_engine`, and calls `os._exit(0)` on
   flag detection so compose `restart: unless-stopped` actually fires.
@@ -424,31 +485,31 @@ Cloned Anton's repo structure as the starting point, renamed everywhere
 - **API** — FastAPI backend boots clean. `/api/health` → 200,
   `/api/config` → 401 (auth required), `/api/login` accepts the existing
   admin/demo creds.
-- **Web** — React SPA serves at port 8085. Login page rebranded ("Sulla
+- **Web** — React SPA serves at port 8085. Login page rebranded ("Ionic
   trading dashboard", "Autonomous FX intelligence"), sidebar header reads
-  "Sulla · FX". Other pages (Dashboard / Trades / Tuning / Market / Config)
-  inherited unchanged from Anton — they read from the empty Sulla DB and
+  "Ionic · FX". Other pages (Dashboard / Trades / Tuning / Market / Config)
+  inherited unchanged from Anton — they read from the empty Ionic DB and
   render with empty-state placeholders.
 - **nginx** — `web/nginx.conf` uses the `resolver 127.0.0.11` + variable
   in `proxy_pass` pattern (the May-12 Anton/Tiberius fix), so future
-  `sulla-api` rebuilds won't 502 the dashboard.
-- **Traefik route** — `~/swarm/proxy/dynamic/sulla.yml` registered;
+  `ionic-api` rebuilds won't 502 the dashboard.
+- **Traefik route** — `~/swarm/proxy/dynamic/ionic.yml` registered;
   file-provider picked it up automatically. Let's Encrypt cert issued for
-  `sulla.blisske.hopto.org`. Confirmed by a `curl https://sulla.blisske.hopto.org/`
+  `ionic.blisske.hopto.org`. Confirmed by a `curl https://ionic.blisske.hopto.org/`
   returning 200.
 - **Swarm root** — `~/swarm/docker-compose.yml` `include:` list extended
-  with `./sulla/repo/docker-compose.yml`. `~/swarm/.env` extended with
-  `SULLA_DATA_DIR`, `SULLA_ENV_FILE`, `SULLA_HOSTNAME` for compose
+  with `./ionic/repo/docker-compose.yml`. `~/swarm/.env` extended with
+  `IONIC_DATA_DIR`, `IONIC_ENV_FILE`, `IONIC_HOSTNAME` for compose
   interpolation.
 - **Repo identity** — Anton-specific docs (CLAUDE/WORKING_STATE/AGGRESSIVE/PIVOT/MIGRATION)
-  removed, Sulla CLAUDE.md and this file written. Backtest results from
+  removed, Ionic CLAUDE.md and this file written. Backtest results from
   Anton's tuning campaigns deleted (`scripts/backtest_results/`,
   `scripts/backtest_cache/`).
 - **Verification** —
-  - `sulla-api` loopback `/api/health` → 200
-  - `sulla-web` LAN `/api/health` → 200 (nginx proxy hits API)
-  - `sulla-web` LAN `/api/config` → 401 (auth working)
-  - `https://sulla.blisske.hopto.org/` → 200 (Traefik + Let's Encrypt working)
+  - `ionic-api` loopback `/api/health` → 200
+  - `ionic-web` LAN `/api/health` → 200 (nginx proxy hits API)
+  - `ionic-web` LAN `/api/config` → 401 (auth working)
+  - `https://ionic.blisske.hopto.org/` → 200 (Traefik + Let's Encrypt working)
   - All three containers healthy per docker healthcheck
   - Engine logs show DB schema initialization + cycle heartbeat
 
@@ -473,11 +534,11 @@ These are tracked in Phase 2 below where they got addressed.
 ### Original Phase 1 follow-ups (for history)
 
 1. **Decide Telegram bot name** — create one via @BotFather when Phase 2
-   lands and add the token to `~/swarm/sulla/.env`.
+   lands and add the token to `~/swarm/ionic/.env`.
 2. **Oanda practice-account credentials** — sign up, generate personal
    access token, grab account ID. Phase 2 entry condition.
 3. **Cosmetic** — the Login page still has Anton-vintage subtext ("Sign in
-   to your Sulla trading dashboard"). Fine, but the marketing copy could be
+   to your Ionic trading dashboard"). Fine, but the marketing copy could be
    FX-specific in Phase 5.
 4. **Demo data** — `core/demo_data.db` is Anton's. Demo login still works
    but shows TradFi positions. Phase 5 reseed with FX data once we have a
@@ -556,9 +617,9 @@ cycle. Still no trading — the consensus layer + execution wire-up is Phase 3.
 
 - **Restart-flow verified end-to-end** under Phase 2:
   ```
-  10:56:59  flag placed via sulla-api docker exec
+  10:56:59  flag placed via ionic-api docker exec
   10:57:21  engine: "Restart flag detected mid-sleep; exiting for compose to restart."
-  10:57:24  fresh engine: "Sulla Phase 2 engine starting"
+  10:57:24  fresh engine: "Ionic Phase 2 engine starting"
   ```
   Mid-sleep detection works (engine wakes every 30s during the 5-min cycle
   sleep), so the dashboard's Restart button doesn't have to wait a full
@@ -575,7 +636,7 @@ cycle. Still no trading — the consensus layer + execution wire-up is Phase 3.
 - No macro calendar. The `macro_blackout` config block doesn't exist yet;
   NFP / FOMC / CPI / ECB / BoJ event-window skipping is Phase 4.
 - No Guide page rewrite. The current `web/src/pages/Guide.jsx` is still
-  the Anton TradFi guide; Sulla-specific Guide is Phase 5.
+  the Anton TradFi guide; Ionic-specific Guide is Phase 5.
 
 ### What the user needs to do to activate Phase 2
 
@@ -589,7 +650,7 @@ The engine is fully wired but idle. To turn it on:
    shows only once).
 3. **Note the practice account ID.** Shown on the same Manage API Access
    page; format is e.g. `101-001-12345678-001`.
-4. **Populate `~/swarm/sulla/.env`** — paste the token and account ID
+4. **Populate `~/swarm/ionic/.env`** — paste the token and account ID
    into the placeholders added in Phase 2:
    ```
    OANDA_API_TOKEN=<your token>
@@ -599,7 +660,7 @@ The engine is fully wired but idle. To turn it on:
 5. **Restart the engine** — either via the dashboard's Config-page Restart
    button, or:
    ```bash
-   docker exec sulla-api touch /app/data/.restart_engine
+   docker exec ionic-api touch /app/data/.restart_engine
    ```
    Within ~30 seconds the engine wakes, picks up the new env vars, and
    starts hitting Oanda for live OHLCV.
@@ -608,9 +669,9 @@ The engine is fully wired but idle. To turn it on:
 
 Once creds are populated and the engine has restarted, expected log lines:
 ```
-=== Sulla Phase 2 engine starting ===
+=== Ionic Phase 2 engine starting ===
 Oanda client ready: OandaClient(account='101-001-12345678-001', environment='practice', ...)
-DB schema ready at /app/data/sulla.db
+DB schema ready at /app/data/ionic.db
 --- CYCLE START | symbols: 7 | tf: 1h ---
 [EUR/USD] $1.08234 | TRENDING | ADX=33.2 | RSI=58.1 | Trend=BULL
 [GBP/USD] $1.26715 | RANGING | ADX=21.7 | RSI=49.3 | Trend=BEAR
@@ -710,14 +771,14 @@ by design until Phase 6 live gates clear.
        synthetic cash debited
   9. Sleep with mid-sleep restart-flag wakeups every 30s
 
-- **Brand color + login redesign** (folded into this session) — Sulla's
+- **Brand color + login redesign** (folded into this session) — Ionic's
   visual identity locked to electric blue (`#3B82F6`). Login page has
   a distinct currency-glyph pattern overlay + blue accent line + FX-
   specific tagline. See preceding commit (56b807e) for the detail.
 
 ### What did NOT land in Phase 3
 
-- **Telegram bot** — Phase 3b. Needs a Sulla BotFather token in `.env`,
+- **Telegram bot** — Phase 3b. Needs a Ionic BotFather token in `.env`,
   then porting the command handlers from Anton/Tiberius. Engine doesn't
   poll Telegram in Phase 3 so there's no token conflict.
 - **`/api/account` + `/api/positions` Oanda integration** — Phase 6
@@ -725,13 +786,13 @@ by design until Phase 6 live gates clear.
   synthetic ledger only.
 - **Macro calendar blackout** — Phase 4. NFP / FOMC / CPI / ECB / BoJ
   event-window skipping.
-- **Sulla-specific Guide page** — currently shows Anton's TradFi guide;
+- **Ionic-specific Guide page** — currently shows Anton's TradFi guide;
   Phase 5 rewrites for FX.
 
 ### Live verification
 
 ```
-2026-05-17 14:26:13 === Sulla Phase 3 engine starting ===
+2026-05-17 14:26:13 === Ionic Phase 3 engine starting ===
 2026-05-17 14:26:13 Oanda client ready: OandaClient(account='101-001-39349095-001', environment='practice', ...)
 2026-05-17 14:26:14 --- CYCLE START | symbols: 7 | tf: 1h ---
 2026-05-17 14:26:15 [EUR/USD] 1.16252 | TRENDING | ADX=42.1 | RSI=35.9 | Trend=BEAR
@@ -760,8 +821,8 @@ what it should: scanning, logging, nothing brewing.
    verbatim so high confidence it's right, but until a real BULLISH
    verdict surfaces in a SHADOW BUY's enriched_verdict field we haven't
    end-to-end tested it on FX.
-3. **Phase 3b: Telegram** — create a Sulla bot via @BotFather, add the
-   token to `~/swarm/sulla/.env`, restart. Then port the command
+3. **Phase 3b: Telegram** — create a Ionic bot via @BotFather, add the
+   token to `~/swarm/ionic/.env`, restart. Then port the command
    handlers from Anton.
 4. **Phase 4: Macro calendar** — most useful before live mode. NFP /
    FOMC blackouts skip new entries N hours before high-impact events.
@@ -772,7 +833,7 @@ what it should: scanning, logging, nothing brewing.
 
 ## Phase 3b — Telegram Bot + Trade Notifications (2026-05-17)
 
-Dedicated Sulla Telegram bot wired alongside the Phase 3 trading loop. Both
+Dedicated Ionic Telegram bot wired alongside the Phase 3 trading loop. Both
 run concurrently as async tasks. The user created a fresh bot via @BotFather
 (separate token from Anton's and Tiberius's — Telegram only allows one
 polling client per token, so each bot in the swarm needs its own).
@@ -792,7 +853,7 @@ polling client per token, so each bot in the swarm needs its own).
 
 - **Command handlers** ported from Anton (FX-adapted):
   - `/help` — full command reference, FX-tuned (no `/protect` or `/apply`
-    sections; Sulla's shadow contract means no naked stops can exist and
+    sections; Ionic's shadow contract means no naked stops can exist and
     there's no ratchet-proposal flow)
   - `/indicators` — regime / RSI / ADX / trend across all 7 majors, FX
     precision via `fx_math.fp()` (USD/JPY at 3dp, others at 5dp), one
@@ -847,7 +908,7 @@ polling client per token, so each bot in the swarm needs its own).
   Notifications wired via a `_notify()` helper that no-ops when `_bot`
   is None — keeps the trading loop callable even without Telegram.
 
-- **Boot announcement** — engine sends `"📈 Sulla (FX) ONLINE"` on
+- **Boot announcement** — engine sends `"📈 Ionic (FX) ONLINE"` on
   startup once Telegram is wired. First boot failed with "Chat not
   found" because Telegram allowlists DMs per-bot and the user had to
   `/start` the new bot first. After `/help` was sent once, the
@@ -856,7 +917,7 @@ polling client per token, so each bot in the swarm needs its own).
 ### Verification
 
 ```
-2026-05-17 15:43:54 === Sulla Phase 3b engine starting ===
+2026-05-17 15:43:54 === Ionic Phase 3b engine starting ===
 2026-05-17 15:43:57 HTTP getMe → 200 OK
 2026-05-17 15:43:57 Application started
 2026-05-17 15:43:57 setMyCommands → 200 OK
@@ -871,7 +932,7 @@ SHADOW BUY / SHADOW SELL the engine produces.
 
 ### What did NOT land in Phase 3b
 
-- **`/protect` and `/apply`** — deliberately skipped. Sulla shadow-mode
+- **`/protect` and `/apply`** — deliberately skipped. Ionic shadow-mode
   positions always have an in-DB stop set on entry so no naked-stop
   scenario can exist. Phase 6 (live Oanda) might bring `/protect` back
   if Oanda's order-rejection edge cases create naked-position windows;
@@ -885,7 +946,7 @@ SHADOW BUY / SHADOW SELL the engine produces.
 
 ### Operational state at handoff
 
-- **All four containers healthy:** sulla-engine, sulla-api, sulla-web,
+- **All four containers healthy:** ionic-engine, ionic-api, ionic-web,
   swarm-proxy
 - **Telegram bot live:** receives commands, sends notifications, full
   command-menu autocomplete
@@ -993,14 +1054,14 @@ Minutes blocks ALL USD-leg pairs (6 of 7 majors) for three hours.
   the same window. Could imagine wanting a longer window for FOMC
   (3 hrs?) vs CPI (1.5 hrs). Skip until we have evidence the
   one-size-fits-all setting is wrong.
-- **Phase 5 (Sulla Guide page rewrite)** — `web/src/pages/Guide.jsx`
+- **Phase 5 (Ionic Guide page rewrite)** — `web/src/pages/Guide.jsx`
   still shows the Anton TradFi guide. Needs FX-specific sections
   including a section on the macro blackout we just built.
 - **Phase 6 (live Oanda)** — separate effort. Live deployment gates.
 
 ### Operational state at handoff
 
-- All four containers healthy: sulla-engine, sulla-api, sulla-web,
+- All four containers healthy: ionic-engine, ionic-api, ionic-web,
   swarm-proxy
 - Telegram bot bidirectional; `/calendar` + `/help` confirm Phase 4
   surface live
@@ -1016,7 +1077,7 @@ Minutes blocks ALL USD-leg pairs (6 of 7 majors) for three hours.
 ## Phase 5 — FX Guide Page Rewrite (2026-05-17)
 
 The dashboard's Guide tab was inherited from Anton's TradFi guide via the
-Phase 1 sed sweep (Anton → Sulla identifier rename). Content stayed
+Phase 1 sed sweep (Anton → Ionic identifier rename). Content stayed
 equity-centric: PDT references, US session hours, earnings blackout,
 shares-based sizing, "TradFi" framing throughout. Phase 5 is a clean
 rewrite for FX context.
@@ -1028,7 +1089,7 @@ rewrite for FX context.
   content throughout.
 
   Section list:
-  1. **What Sulla does** — overview, unleveraged-by-design framing,
+  1. **What Ionic does** — overview, unleveraged-by-design framing,
      five pillars (added "Macro-event blackout" + "Pip-aware sizing" to
      Anton's three)
   2. **The seven majors** (NEW) — per-pair characterization card grid
@@ -1040,9 +1101,9 @@ rewrite for FX context.
      trends; cable's UK-news gaps; carry-trade behavior of USD/JPY)
   4. **The 2+1+1 consensus** — same layers; FX-tuned "why this matters"
      callout (FX is the most algo-saturated market on Earth)
-  5. **Risk management** — Sulla-specific numbers (5% paper / 2% live,
+  5. **Risk management** — Ionic-specific numbers (5% paper / 2% live,
      12% cap, 5 max). Added a callout box for the unleveraged-by-design
-     principle (Oanda offers 50:1 retail leverage; Sulla deliberately
+     principle (Oanda offers 50:1 retail leverage; Ionic deliberately
      ignores it). Removed Anton's PDT/cash-account section + EOD force-
      exit + earnings blackout.
   6. **Self-tuning** — same lifecycle; recalibrated patience math
@@ -1055,7 +1116,7 @@ rewrite for FX context.
      defaults, per-currency pair selection. Side-by-side grid of
      "Headline events per currency" + "What it does NOT do (yet)" so
      the operator knows force-exit isn't included.
-  9. **Telegram commands** — updated for Sulla's surface: added
+  9. **Telegram commands** — updated for Ionic's surface: added
      /calendar row, dropped /protect (no naked stops in shadow mode)
      and /apply (no ratchet-proposal flow), changed argument names
      (`PAIR USD` not `ASSET USD`)
@@ -1073,10 +1134,10 @@ rewrite for FX context.
         blackout entry
       · **Operational states** — shadow vs live; live mode flagged as
         "planned" because Phase 6 (Oanda order submission) isn't built
-      · **Praetor / stack** — Sulla / Anton / Tiberius cross-references
+      · **Praetor / stack** — Ionic / Anton / Tiberius cross-references
         updated; Battlemage host described accurately
 
-- **Color palette unchanged**: Sulla brand BLUE (#3B82F6) is the section
+- **Color palette unchanged**: Ionic brand BLUE (#3B82F6) is the section
   accent; semantic colors preserved (GREEN MR, AMBER LS, RED halt, CYAN
   VB — the renamed-from-BLUE indicator color from Phase 1).
 
@@ -1112,7 +1173,7 @@ No Anton-era content surviving (no "TradFi", "PDT", "EOD force-exit",
 
 ### Operational state at handoff
 
-- Guide page live at `https://sulla.blisske.hopto.org/guide` and
+- Guide page live at `https://ionic.blisske.hopto.org/guide` and
   `http://192.168.0.135:8085/guide`
 - All four containers healthy
 - Trading loop + Telegram bot + macro blackout all running concurrently
@@ -1127,7 +1188,7 @@ No Anton-era content surviving (no "TradFi", "PDT", "EOD force-exit",
 ## Daily Reveille + Boot Suppression (2026-05-17, late)
 
 The Phase 3 main.py rewrite didn't include a daily morning greeting (Anton
-and Tiberius both have one; Sulla did not). User asked whether all three
+and Tiberius both have one; Ionic did not). User asked whether all three
 bots reflect their market-open semantics correctly.
 
 Audit + landed work:
@@ -1136,7 +1197,7 @@ Audit + landed work:
   including the reveille block — on weekends and holidays.
 - **Tiberius:** already correct (you'd fixed this earlier with rotating
   flavor lines for 24/7 framing).
-- **Sulla:** had no reveille. Added one in `_maybe_send_reveille()` with
+- **Ionic:** had no reveille. Added one in `_maybe_send_reveille()` with
   21 rotating FX-themed lines (Roman/imperial, FX-native "London bid New
   York offered", wry one-liners). Fires once per calendar day after 07:30
   MT IF `execution.is_market_open()` is True (FX 24/5 gate correctly
@@ -1153,8 +1214,8 @@ for each bot.
 ## Login: multi-pair chart trace (2026-05-17, late)
 
 The login page's gold `DramaticCandles` motif was shared verbatim across
-Anton, Tiberius, and Sulla, making the three pages look like recolors of
-the same template. Replaced Sulla's with `MultiPairChartTrace` —
+Anton, Tiberius, and Ionic, making the three pages look like recolors of
+the same template. Replaced Ionic's with `MultiPairChartTrace` —
 seven smooth Bezier curves in graduated blues, one per major. Two hero
 lines (EUR/USD in cyan, USD/JPY in electric blue) have a Gaussian-blur
 glow + pulsing endpoint dot suggesting live data; the other five recede
@@ -1173,7 +1234,7 @@ slice. Three stacked issues:
 1. **Prefilter too permissive.** `consensus.min_consensus_score: 2`
    contradicted the inline comment ("primary(1) + 2 of 3 supporting
    signals minimum"), which should be 3. Anton had the same drift;
-   Tiberius was already at 3. Bumped to **3** on Anton and Sulla in
+   Tiberius was already at 3. Bumped to **3** on Anton and Ionic in
    both `data/Config.yaml` (live, hot-reloaded) and `repo/core/Config.yaml`
    (image baseline). This tightens the gate so weak setups (USD/JPY VB
    with ADX 13.6, RSI 68.8, volume 0.4× — a momentum trap) never reach
@@ -1196,13 +1257,13 @@ removal. Anton's veto path only logs to DB (no Telegram notification by
 design) so it received only the Config bump.
 
 Deployed all three engines via
-`docker compose up -d --build anton-engine tiberius-engine sulla-engine`
+`docker compose up -d --build anton-engine tiberius-engine ionic-engine`
 from `~/swarm/`. All three healthy and cycling at 20:07 ET.
 
 ## Tuner Trigger Wired Into Engine Loop (2026-05-18, evening)
 
 While fixing a session-counter bug on Anton and Tiberius's tuner trigger,
-discovered Sulla's main.py was **missing the tuner invocation entirely**.
+discovered Ionic's main.py was **missing the tuner invocation entirely**.
 `tuner.py` existed (with the full `run_tuning_cycle()` implementation),
 the `tuning_log` table existed, the config had a `tuning:` section, and
 `/pnl` even claimed symbols were "tuning cycle eligible" once they hit 10
@@ -1223,13 +1284,13 @@ DB-backed trigger block in `trading_loop_async()` right after
         tuner.run_tuning_cycle(_ready)
 
 Wrapped in try/except so any tuner-side bug doesn't take down the trading
-loop. Sulla currently has 0 closed shadow trades (just started cycling
+loop. Ionic currently has 0 closed shadow trades (just started cycling
 after the Oanda credentials landed earlier this week), so the block runs
 silently every cycle. Once any symbol accumulates 10 closes, the
 `[TUNER] Trigger fired` line will appear in engine logs and the tuner's
 internal per-strategy + cooling-off guards take over from there.
 
-This brings Sulla to feature parity with Anton and Tiberius on the
+This brings Ionic to feature parity with Anton and Tiberius on the
 tuning mechanism. Verified post-restart: first cycle ran clean, no
 exceptions, all 7 FX pairs scanned normally.
 
@@ -1240,7 +1301,7 @@ nothing ever ported off. They worked (or appeared to) because the alpaca-py
 package was still pinned in `requirements.txt`, satisfying the imports.
 But the runtime semantics were wrong: `/api/session` was asking Alpaca's
 US-equity clock whether US-equity hours were open and returning
-`Pre-Market`/`After Hours`/`Weekend` for Sulla's FX dashboard. Cleanup:
+`Pre-Market`/`After Hours`/`Weekend` for Ionic's FX dashboard. Cleanup:
 
 - **`api/main.py` — `/api/session` rewritten for FX 24/5.** Dropped
   `_alpaca_is_open()` (Alpaca clock + 60s cache) and the equity-flavored
@@ -1258,7 +1319,7 @@ US-equity clock whether US-equity hours were open and returning
   payload is correct at every transition.
 
 - **`api/main.py` — `_CONFIG_REQUIRED_KEYS` fixed.** The save-config
-  validator was requiring `"alpaca"` in the posted Config, but Sulla's
+  validator was requiring `"alpaca"` in the posted Config, but Ionic's
   Config.yaml has `"oanda"` — meaning every POST to `/api/config` from
   the dashboard was returning HTTP 422. Changed `"alpaca"` → `"oanda"`.
   Save flow now actually works.
@@ -1278,7 +1339,7 @@ US-equity clock whether US-equity hours were open and returning
 
 - **`requirements.txt`** — `alpaca-py==0.43.2` removed. Confirmed
   post-rebuild: `pip show alpaca-py` reports "not found" inside
-  sulla-api, and `import alpaca` raises ImportError.
+  ionic-api, and `import alpaca` raises ImportError.
 
 - **`web/src/pages/Dashboard.jsx`** — `SessionBadge` collapsed from the
   five-status equity palette (`Open` / `No New Entries` / `Pre-Market`
@@ -1288,26 +1349,26 @@ US-equity clock whether US-equity hours were open and returning
 ### Live verification post-rebuild
 
 ```
-$ docker exec sulla-api pip show alpaca-py
+$ docker exec ionic-api pip show alpaca-py
 WARNING: Package(s) not found: alpaca-py
 
-$ docker exec sulla-api python3 -c "
+$ docker exec ionic-api python3 -c "
   import config_manager
   print(hasattr(config_manager, 'get_trading_client'),
         hasattr(config_manager, 'get_data_client'))"
 False False
 
-$ docker exec sulla-api python3 -c "
+$ docker exec ionic-api python3 -c "
   import main; print(main._market_session_status())"
 {'open': True, 'status': 'Open'}    # Tue 10:58 ET, > 24h from Fri close
 
 $ curl -s http://127.0.0.1:8002/api/health
-{"status":"ok","service":"Sulla API","version":"1.0.0"}
+{"status":"ok","service":"Ionic API","version":"1.0.0"}
 ```
 
 All three containers rebuilt + recreated from `~/swarm/`, all healthy.
 Engine cycle is running the 5-min FX scan normally; no errors in the
-sulla-api uvicorn boot log.
+ionic-api uvicorn boot log.
 
 ### Known residue (out of scope this pass)
 
@@ -1328,13 +1389,13 @@ sulla-api uvicorn boot log.
 1. Upload this WORKING_STATE.md at session start
 2. SSH into the host: `ssh blisske@192.168.0.135`
 3. `cd ~/swarm/` (always — compose runs from the swarm root; running from
-   `~/swarm/sulla/repo/` creates a different compose project and collides
+   `~/swarm/ionic/repo/` creates a different compose project and collides
    with the swarm-managed `container_name:` declarations)
-4. For one-off Python: `docker exec -it sulla-engine python3` (limited to
+4. For one-off Python: `docker exec -it ionic-engine python3` (limited to
    stdlib + sqlite3 in Phase 1; oanda/telegram libs added in Phase 2)
 5. Anton and Tiberius are sister bots in the same swarm; their repos are at
    `~/swarm/anton/repo` and `~/swarm/tiberius/repo`. Anton's
-   `web/src/pages/Guide.jsx` is the model for the Sulla Guide we'll write
+   `web/src/pages/Guide.jsx` is the model for the Ionic Guide we'll write
    in Phase 5. Anton's `core/main.py` (preserved here as
    `core/_main_anton_reference.py`) is the source for the Phase 2 engine
    port.

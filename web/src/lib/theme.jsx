@@ -4,13 +4,13 @@ const ThemeContext = createContext(null)
 
 export function ThemeProvider({ children }) {
   const [dark, setDark] = useState(() => {
-    const saved = localStorage.getItem('sulla_theme')
+    const saved = localStorage.getItem('ionic_theme')
     return saved ? saved === 'dark' : true
   })
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
-    localStorage.setItem('sulla_theme', dark ? 'dark' : 'light')
+    localStorage.setItem('ionic_theme', dark ? 'dark' : 'light')
   }, [dark])
 
   return (

@@ -2,7 +2,7 @@ import datetime
 import pytz
 
 # ==============================================================================
-# SULLA V1 — FX STRATEGY ENGINE
+# IONIC V1 — FX STRATEGY ENGINE
 # Same 4-paradigm signal architecture as Anton (TradFi) and Tiberius (crypto):
 # Trend Following / Mean Reversion / Volatility Breakout / Liquidity Sweep.
 # Asset-class-agnostic math; only the session-hour guard differs from Anton.

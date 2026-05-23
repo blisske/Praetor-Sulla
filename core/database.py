@@ -7,16 +7,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ==============================================================================
-# SULLA V1 - DATABASE & LOGGING ENGINE (The Ledger)
+# IONIC V1 - DATABASE & LOGGING ENGINE (The Ledger)
 # Handles all local SQLite operations for Wall Street paper trading.
 # ==============================================================================
 
-logger  = logging.getLogger("sulla")
+logger  = logging.getLogger("ionic")
 BASE_DIR = Path(__file__).parent
 # Container-friendly: SQLITE_PATH env var overrides the source-tree default so
 # the same code path works under systemd (DB next to source) or in Docker
-# (DB at a bind-mounted /app/data/sulla.db).
-DB_PATH  = Path(os.environ.get('SQLITE_PATH', BASE_DIR / 'sulla_data.db'))
+# (DB at a bind-mounted /app/data/ionic.db).
+DB_PATH  = Path(os.environ.get('SQLITE_PATH', BASE_DIR / 'ionic_data.db'))
 
 
 def init_db():
@@ -981,7 +981,7 @@ def init_shadow_account(initial_capital: float = 10000.0):
     """
     Seeds the shadow_account row if absent. Idempotent — does not overwrite
     an existing balance, so a service restart preserves the running ledger.
-    To reset for a fresh shadow run, archive sulla_data.db and let init_db()
+    To reset for a fresh shadow run, archive ionic_data.db and let init_db()
     recreate everything.
     """
     try:
@@ -1152,7 +1152,7 @@ def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
     """
     Mark-to-market value of an FX position in USD.
 
-    Sulla inherited the equity-mark math from Anton (where positions are stocks
+    Ionic inherited the equity-mark math from Anton (where positions are stocks
     and `shares × price` correctly yields USD value). For FX, the math depends
     on which side of the pair USD sits:
 
@@ -1165,7 +1165,7 @@ def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
         Example: USD/JPY 1199 units → $1,199 USD (NOT 1199 × 159 = $190K).
 
     Cross-rate FX (no USD leg, e.g. EUR/GBP) would need triangulation; not
-    relevant for Sulla's 7-major universe (all pairs include USD).
+    relevant for Ionic's 7-major universe (all pairs include USD).
 
     NOTE: This treats positions as held-asset value, not full directional PnL.
     For USD-base pairs that means PnL contribution from rate movement is not

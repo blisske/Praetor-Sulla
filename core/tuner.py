@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 BASE_DIR = Path(__file__).parent
 # Container-friendly: env overrides for paths bind-mounted into a container.
-DB_PATH  = Path(os.environ.get('SQLITE_PATH', BASE_DIR / 'sulla_data.db'))
+DB_PATH  = Path(os.environ.get('SQLITE_PATH', BASE_DIR / 'ionic_data.db'))
 CFG_PATH = Path(os.environ.get('CONFIG_PATH', BASE_DIR / 'Config.yaml'))
 
 logger = logging.getLogger(__name__)
@@ -140,7 +140,7 @@ def _get_current_param_value(symbol, parameter, full_cfg):
     """
     parts = parameter.split('.')
 
-    # Try symbol override first — Sulla stores under strategy.symbol_overrides
+    # Try symbol override first — Ionic stores under strategy.symbol_overrides
     sym_override = full_cfg.get('strategy', {}).get('symbol_overrides', {}).get(symbol, {})
     val = sym_override
     for p in parts:
