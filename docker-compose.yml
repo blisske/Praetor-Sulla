@@ -67,14 +67,20 @@ services:
       AGENT_PORT:         "8002"
       SQLITE_PATH:        /app/data/ionic.db
       DEMO_SQLITE_PATH:   /app/core/demo_data.db    # baked into image
+      # Multi-tenant auth + broker_keys + market_states live in the shared
+      # Foundation identity DB at ~/swarm/foundation/data/global.db. Same
+      # file Corinthian + Doric use — one signup, all bots accessible.
+      GLOBAL_DB_PATH:     /app/foundation/global.db
       CONFIG_PATH:        /app/data/Config.yaml
       RESTART_FLAG_PATH:  /app/data/.restart_engine
       LMSTUDIO_BASE_URL:  ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
-      CORS_ORIGINS:       ${CORS_ORIGINS:-http://localhost,http://192.168.0.135,https://ionic.blisske.hopto.org}
+      CORS_ORIGINS:       ${IONIC_CORS_ORIGINS:-http://localhost,http://192.168.0.135,https://ionic.foundationbots.com,https://ionic.blisske.hopto.org,https://sulla.blisske.hopto.org}
       PYTHONUNBUFFERED:   "1"
       TZ:                 ${TZ:-America/Denver}
     volumes:
       - ${IONIC_DATA_DIR:-./data}:/app/data
+      # Shared cross-bot identity DB — see GLOBAL_DB_PATH above
+      - ${FOUNDATION_DATA_DIR:-/home/blisske/swarm/foundation/data}:/app/foundation
     ports:
       # Loopback-only publish — the API isn't reachable from the LAN
       # (Traefik fronts the web container, which proxies to API internally).

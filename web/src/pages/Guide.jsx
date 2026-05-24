@@ -63,8 +63,8 @@ const Section1 = () => (
     </p>
     <p>
       Ionic is the FX sibling of two other Foundation instances:
-      <strong style={{ color: 'var(--text-primary)' }}> Doric</strong> (TradFi
-      equities on Alpaca, US session-bound) and
+      <strong style={{ color: 'var(--text-primary)' }}> Ionic</strong> (TradFi
+      equities on Oanda, US session-bound) and
       <strong style={{ color: 'var(--text-primary)' }}> Corinthian</strong>
       (crypto on Kraken, 24/7). All three share the same 4-paradigm signal
       engine + 2+1+1 consensus + self-tuner architecture; they diverge only
@@ -222,7 +222,7 @@ const Section3 = () => (
     <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
       Each paradigm has its own entry RSI threshold, configurable per pair
       via <Code>strategy.symbol_overrides</Code> in <Code>Config.yaml</Code>.
-      The paradigm logic is identical to Doric (TradFi) and Corinthian (crypto)
+      The paradigm logic is identical to Ionic (TradFi) and Corinthian (crypto)
       — the underlying math doesn't care whether it's looking at AAPL bars or
       BTC bars or EUR/USD bars. What changes per asset class is the bar
       timeframe (Ionic uses 1h), session bounds (FX is 24/5), and event
@@ -341,7 +341,7 @@ const Section5 = () => (
       Random ATR-distance whip-saws are most likely here, so during this window the trailing-stop
       multiplier widens by an extra <Code>0.3</Code> ATR to avoid being shaken out on normal
       overlap-period noise. Configurable via <Code>ratchet.power_hour_defense</Code> in Config.yaml
-      (the inherited name from Doric's NYSE Power Hour pattern). Outside the window, base
+      (the inherited name from Ionic's NYSE Power Hour pattern). Outside the window, base
       multiplier applies.
     </p>
 
@@ -358,7 +358,7 @@ const Section5 = () => (
         Oanda offers retail leverage up to 50:1 in the US. Ionic deliberately
         runs <strong>unleveraged 1:1</strong>: position notional cannot exceed
         equity. This matches the no-margin discipline of Corinthian (spot crypto)
-        and Doric (cash account, no margin) — the entire Foundation swarm is
+        and Ionic (cash account, no margin) — the entire Foundation swarm is
         designed around "you can lose what you bet but not more than you bet."
         Smaller positions for the same percent risk, slower compounding, but
         margin-call risk and forced-liquidation risk are permanently absent.
@@ -908,16 +908,16 @@ const Section11 = () => (
 
       <TermGroup title="Foundation / stack" color={CYAN}>
         <Term term="Foundation">
-          The platform — the React + FastAPI + Python stack that hosts Doric
+          The platform — the React + FastAPI + Python stack that hosts Ionic
           (TradFi), Corinthian (crypto), and Ionic (FX). What gets distributed.
         </Term>
         <Term term="Ionic">
           The FX trading instance. Runs on Oanda v20 REST. This system.
         </Term>
-        <Term term="Doric">
-          The TradFi sibling. Long-only US equities on Alpaca paper. Session-
+        <Term term="Ionic">
+          The TradFi sibling. Long-only US equities on Oanda paper. Session-
           bound (9:30 AM–4:00 PM ET) with earnings blackouts. Separate repo
-          at <Code>blisske/Foundation-Doric</Code>.
+          at <Code>blisske/Foundation-Ionic</Code>.
         </Term>
         <Term term="Corinthian">
           The crypto sibling. Long-only spot on Kraken via CCXT. 24/7 with
@@ -935,7 +935,7 @@ const Section11 = () => (
         </Term>
         <Term term="Battlemage">
           The host machine — Windows 11 + WSL2 + Docker Desktop. LAN IP
-          192.168.0.135. Runs the Foundation swarm containers (Doric, Corinthian,
+          192.168.0.135. Runs the Foundation swarm containers (Ionic, Corinthian,
           Ionic) and LM Studio side-by-side. Intel Arc Pro B70 GPU.
         </Term>
         <Term term="Brave Search">

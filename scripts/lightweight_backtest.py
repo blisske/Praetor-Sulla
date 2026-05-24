@@ -6,7 +6,7 @@ strategy code verbatim — `strategy.check_entry_signals`,
 `strategy.check_supporting_signals`, the inlined MTF gate, the consensus score
 gate, ATR-stop sizing, ratchet trailing stop, EOD force-exit, tiered
 drawdown, and the daily-session-loss circuit — over historical 30-min OHLCV
-fetched from Alpaca's paper data feed.
+fetched from Oanda's paper data feed.
 
 Per-paradigm gate funnel reporting is mandatory. Aggregate counters lie:
 Tiberius's first cut showed "X fires, Y consensus passes, Z MTF blocks" and
@@ -18,7 +18,7 @@ MTF). The funnel reports per-paradigm `fires → consensus_pass → mtf_blocked
 EXPLICITLY NOT MODELED (caveats):
   * AI veto (Gemma 4 BEARISH abort) — pass-through. Will overstate fire counts
     by however many would have been killed by sentiment in production.
-  * Slippage / commissions — Alpaca Paper is fee-free, but live will have
+  * Slippage / commissions — Oanda Paper is fee-free, but live will have
     micro-slippage on stops. Estimate ~1-3 bps drag per round trip.
   * Earnings blackout — yfinance is live-only, can't replay. Earnings-day
     entries WILL appear in the backtest that wouldn't fire in production.
@@ -60,9 +60,9 @@ sys.path.insert(0, str(CORE_DIR))
 import strategy as ionic_strategy  # noqa: E402
 import config_manager              # noqa: E402
 
-from alpaca.data.requests import StockBarsRequest          # noqa: E402
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit # noqa: E402
-from alpaca.data.enums import DataFeed                     # noqa: E402
+from oanda.data.requests import StockBarsRequest          # noqa: E402
+from oanda.data.timeframe import TimeFrame, TimeFrameUnit # noqa: E402
+from oanda.data.enums import DataFeed                     # noqa: E402
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -93,7 +93,7 @@ def _cache_key(symbol: str, tf_str: str, start: datetime, end: datetime) -> Path
     return CACHE_DIR / f"{symbol}_{tf_str}_{s}_{e}.pkl"
 
 
-def _alpaca_tf(tf_str: str) -> TimeFrame:
+def _oanda_tf(tf_str: str) -> TimeFrame:
     if tf_str == '30m':
         return TimeFrame(30, TimeFrameUnit.Minute)
     if tf_str == '1d':
@@ -106,7 +106,7 @@ def _alpaca_tf(tf_str: str) -> TimeFrame:
 def fetch_bars(symbol: str, tf_str: str, start: datetime, end: datetime,
                *, use_cache: bool = True) -> pd.DataFrame:
     """
-    Fetch historical OHLCV bars from Alpaca, caching to parquet for fast reruns.
+    Fetch historical OHLCV bars from Oanda, caching to parquet for fast reruns.
     Returns a tz-aware (ET) DataFrame indexed by bar timestamp with columns
     ['open','high','low','close','volume','trade_count','vwap'].
     """
@@ -117,7 +117,7 @@ def fetch_bars(symbol: str, tf_str: str, start: datetime, end: datetime,
     client  = config_manager.get_data_client()
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
-        timeframe=_alpaca_tf(tf_str),
+        timeframe=_oanda_tf(tf_str),
         start=start,
         end=end,
         feed=DataFeed.IEX,    # paper account is IEX-only; matches live engine
@@ -877,7 +877,7 @@ def main() -> int:
     parser.add_argument('--end',   type=str, default=None, help='YYYY-MM-DD (default: today)')
     parser.add_argument('--symbols', nargs='+', default=None, help='Override symbols to test')
     parser.add_argument('--params', nargs='+', default=[], help='Param overrides like strategy.paradigms.trend_following.rsi_entry=55')
-    parser.add_argument('--no-cache', action='store_true', help='Force re-fetch from Alpaca')
+    parser.add_argument('--no-cache', action='store_true', help='Force re-fetch from Oanda')
     parser.add_argument('--output', type=str, default=None, help='Markdown report path (default: scripts/backtest_results/<ts>.md)')
     args = parser.parse_args()
 

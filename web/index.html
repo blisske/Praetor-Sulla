@@ -16,10 +16,14 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
+      // Service worker disabled 2026-05-23 — PWA caching kept handing users
+      // stale bundles during active SaaS development. We do NOT register a
+      // new SW here. The /sw.js file still exists but is now a kill-switch
+      // that unregisters itself + nukes its caches on visit.
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(console.error);
-        });
+        navigator.serviceWorker.getRegistrations()
+          .then(regs => regs.forEach(r => r.unregister()))
+          .catch(() => {});
       }
     </script>
   </body>

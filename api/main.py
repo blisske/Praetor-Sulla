@@ -45,15 +45,51 @@ RESTART_FLAG_PATH = Path(os.environ.get(
 ))
 
 sys.path.insert(0, str(CORE_DIR))
+# Also put BASE_DIR (/app) on the path so `from core import auth` etc.
+# resolves as a package import — required for the new SaaS routers.
+sys.path.insert(0, str(BASE_DIR))
+
 import config_manager
 import execution
+# Multi-tenant SaaS modules (live as of 2026-05-23 cutover)
+from core import auth as core_auth
+from core.auth import AuthError
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="Ionic API", version="1.0.0")
+app = FastAPI(title="Foundation Ionic API", version="2.0.0")
+
+# Mount the SaaS routers FIRST so their canonical paths take precedence.
+# Legacy env-hash /api/auth/login retired in this cutover — both operator
+# (user_id=1) and demo (user_id=2) authenticate via the shared
+# foundation/data/global.db now.
+from api.auth     import router as _auth_router      # noqa: E402 (after sys.path)
+from api.byok     import router as _byok_router      # noqa: E402 (Oanda)
+from api.mode     import router as _mode_router      # noqa: E402
+from api.admin    import router as _admin_router     # noqa: E402
+from api.demo     import router as _demo_router      # noqa: E402 (public no-auth)
+from api.freeze   import router as _freeze_router    # noqa: E402 (user-side kill switch)
+from api.legal    import router as _legal_router     # noqa: E402 (public no-auth — ToS + Privacy)
+from api.risk     import router as _risk_router      # noqa: E402 (user-settable risk caps)
+from api.totp     import router as _totp_router      # noqa: E402 (2FA enrollment + mgmt)
+from api.provision import router as _provision_router # noqa: E402 (click-to-provision)
+app.include_router(_auth_router)
+app.include_router(_byok_router)
+app.include_router(_mode_router)
+app.include_router(_admin_router)
+app.include_router(_demo_router)
+app.include_router(_freeze_router)
+app.include_router(_legal_router)
+app.include_router(_risk_router)
+app.include_router(_totp_router)
+app.include_router(_provision_router)
 
 @app.on_event("startup")
 async def startup():
     _init_login_log()
+    if not DEMO_DB.exists() and REAL_DB.exists():
+        import shutil
+        shutil.copy(REAL_DB, DEMO_DB)
+        print(f"✅ Demo DB initialized from real DB snapshot.")
 
 # Container-friendly: comma-separated CORS_ORIGINS env var with sensible
 # defaults. In compose, set CORS_ORIGINS to the public hostnames the dashboard
@@ -125,34 +161,113 @@ SECRET_KEY                = os.getenv("API_SECRET_KEY", "change-me-in-production
 ALGORITHM                 = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # 8 hours
 
-pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+API_USERNAME  = os.getenv("API_USERNAME",  "admin").strip().lower()
+DEMO_USERNAME = os.getenv("DEMO_USERNAME", "demo").strip().lower()
+DEMO_EMAIL    = os.getenv("DEMO_EMAIL",    "demo@foundationbots.com").strip().lower()
 
-# Usernames normalized at load — login + JWT sub are lowercased so all
-# downstream user == API_USERNAME / DEMO_USERNAME comparisons are case-insensitive.
-API_USERNAME      = os.getenv("API_USERNAME", "admin").strip().lower()
-API_PASSWORD_HASH = os.getenv("API_PASSWORD_HASH", "")
-DEMO_USERNAME     = os.getenv("DEMO_USERNAME", "demo").strip().lower()
-DEMO_PASSWORD_HASH = os.getenv("DEMO_PASSWORD_HASH", "")
 
 def get_db(user: str = "admin") -> sqlite3.Connection:
-    """Return a DB connection scoped to user role + bot mode.
-
-    Admin always sees the live runtime DB. The demo user sees:
-      - live DB while shadow_mode is on (paper trading — safe to share)
-      - static demo_data.db once shadow_mode is off (real money → privacy)
+    """DEPRECATED — legacy string-based DB router. Use get_db_for(ctx)
+    for per-user routing. Kept only for backward compat with any leftover
+    callsites in this module.
     """
     if user == DEMO_USERNAME:
         try:
             shadow_on = config_manager.load_engine_config().get('oanda', {}).get('shadow_mode', False)
         except Exception:
-            shadow_on = False  # fail closed — better to show stale demo than risk leaking live data
+            shadow_on = False
         path = REAL_DB if shadow_on else DEMO_DB
     else:
         path = REAL_DB
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+# Per-user routing — same shape as Corinthian + Doric. See those repos'
+# api/main.py for the canonical reasoning. Bug fixed in this initial
+# Ionic SaaS port (rather than introduced + patched): per-user data
+# is isolated from operator data from day one.
+from dataclasses import dataclass
+@dataclass(frozen=True)
+class AuthCtx:
+    user_id:         int
+    legacy_username: str
+
+
+def _per_user_db_path(user_id: int) -> Path:
+    """Where a multi-tenant user's per-user ionic.db lives on the
+    bind-mounted data dir."""
+    return REAL_DB.parent / "users" / str(user_id) / "ionic.db"
+
+
+def _ensure_per_user_db_schema(per_user_path: Path) -> None:
+    """Seed DDL from operator's DB into a fresh per-user file so SELECTs
+    return 0 rows instead of erroring before the per-user engine has booted.
+    Idempotent."""
+    per_user_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        c = sqlite3.connect(per_user_path)
+        existing = c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='trades'"
+        ).fetchone()
+        c.close()
+        if existing:
+            return
+    except sqlite3.Error:
+        pass
+    try:
+        src = sqlite3.connect(REAL_DB)
+        ddls = [r[0] for r in src.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE sql IS NOT NULL "
+            "AND type IN ('table','index') "
+            "AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()]
+        src.close()
+        dst = sqlite3.connect(per_user_path)
+        for ddl in ddls:
+            try:
+                dst.execute(ddl)
+            except sqlite3.OperationalError:
+                pass
+        dst.commit()
+        dst.close()
+    except sqlite3.Error:
+        pass
+
+
+def get_db_for(ctx: 'AuthCtx') -> sqlite3.Connection:
+    """Route per-user.
+    user_id=1 (operator)   → REAL_DB
+    user_id=2 (demo)       → DEMO_DB or REAL_DB depending on shadow_mode
+    user_id>=3 (real user) → /app/data/users/{user_id}/ionic.db
+                             (never falls back to REAL_DB — schema seeded
+                              from REAL_DB so SELECTs return 0 rows
+                              instead of erroring)
+    """
+    if ctx.user_id == 2 or ctx.legacy_username == DEMO_USERNAME:
+        try:
+            shadow_on = config_manager.load_engine_config().get('oanda', {}).get('shadow_mode', False)
+        except Exception:
+            shadow_on = False
+        path = REAL_DB if shadow_on else DEMO_DB
+    elif ctx.user_id == 1:
+        path = REAL_DB
+    else:
+        per_user = _per_user_db_path(ctx.user_id)
+        _ensure_per_user_db_schema(per_user)
+        path = per_user
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _resolve_legacy_username(user_email: str) -> str:
+    """Map a global.db user's email to the legacy 'admin'/'demo' string."""
+    if user_email == DEMO_EMAIL:
+        return DEMO_USERNAME
+    return API_USERNAME
 
 # ── Timestamp normalization ───────────────────────────────────────────────────
 # SQLite stores CURRENT_TIMESTAMP as UTC text like "2026-04-27 18:50:43" with
@@ -194,20 +309,54 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+def _decode_bearer_ctx(token: str) -> AuthCtx:
+    """Decode SaaS JWT → AuthCtx (user_id + legacy username).
+    Raises HTTPException(401) on any failure. Shared by HTTP + WS."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-        return username
-    except JWTError:
-        raise credentials_exception
+        claims = core_auth.decode_jwt(token)
+    except AuthError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if claims.get("purpose"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This token can't be used for general access.",
+        )
+    try:
+        user_id = int(claims["sub"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad token claims")
+    user = core_auth.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found or deleted")
+    return AuthCtx(
+        user_id         = user_id,
+        legacy_username = _resolve_legacy_username(user.email),
+    )
+
+
+from fastapi import Header
+
+async def get_auth_ctx(authorization: Optional[str] = Header(None)) -> AuthCtx:
+    """FastAPI dependency: decode JWT → AuthCtx with both user_id + legacy string."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = authorization[7:].strip()
+    return _decode_bearer_ctx(token)
+
+
+async def get_current_user(ctx: AuthCtx = Depends(get_auth_ctx)) -> str:
+    """Backwards-compat wrapper — returns just the legacy username string.
+    Endpoints that need per-user DB routing should depend on get_auth_ctx
+    directly and call get_db_for(ctx)."""
+    return ctx.legacy_username
 
 # ── Market session helper ─────────────────────────────────────────────────────
 # FX is 24/5: open Sun 17:00 ET → Fri 17:00 ET. execution.is_market_open() is
@@ -248,37 +397,11 @@ def _market_session_status() -> dict:
     mins = int((sunday_open - now).total_seconds() // 60)
     return {"open": False, "status": "Closed", "opens_in_minutes": mins}
 
-# ── Auth endpoint ─────────────────────────────────────────────────────────────
-@app.post("/api/auth/login", response_model=Token)
-async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
-    ip = request.client.host
-    _check_rate_limit(ip)
-
-    # Case-insensitive username — preserve original for the audit log
-    submitted = (form_data.username or "").strip().lower()
-    authenticated = False
-    if submitted == API_USERNAME:
-        if API_PASSWORD_HASH and verify_password(form_data.password, API_PASSWORD_HASH):
-            authenticated = True
-    elif submitted == DEMO_USERNAME:
-        if DEMO_PASSWORD_HASH and verify_password(form_data.password, DEMO_PASSWORD_HASH):
-            authenticated = True
-
-    if not authenticated:
-        _record_failure(ip)
-        remaining = RATE_LIMIT_MAX - len(_failed_attempts[ip])
-        detail = f"Incorrect username or password ({remaining} attempt{'s' if remaining != 1 else ''} remaining)"
-        _log_attempt(form_data.username, ip, "FAIL", detail)
-        raise HTTPException(status_code=400, detail=detail)
-
-    _clear_failures(ip)
-    _log_attempt(form_data.username, ip, "SUCCESS")
-
-    token = create_access_token(
-        data={"sub": submitted},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    return {"access_token": token, "token_type": "bearer"}
+# Legacy /api/auth/login + env-hash bcrypt creds retired on 2026-05-23
+# (Ionic SaaS port). Path is now owned by api.auth.router (mounted above).
+# Both operator (user_id=1) and demo (user_id=2) live in the shared
+# foundation/data/global.db and authenticate through the new SaaS flow
+# with argon2id passwords, email verification, 2FA, etc.
 
 # ── REST endpoints ────────────────────────────────────────────────────────────
 @app.get("/api/health")
@@ -293,8 +416,8 @@ async def get_session(user: str = Depends(get_current_user)):
     return _market_session_status()
 
 @app.get("/api/trades")
-async def get_trades(limit: int = 50, user: str = Depends(get_current_user)):
-    conn = get_db(user)
+async def get_trades(limit: int = 50, ctx: AuthCtx = Depends(get_auth_ctx)):
+    conn = get_db_for(ctx)
     try:
         rows = conn.execute(
             "SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)
@@ -304,7 +427,7 @@ async def get_trades(limit: int = 50, user: str = Depends(get_current_user)):
         conn.close()
 
 @app.get("/api/positions")
-async def get_positions(user: str = Depends(get_current_user)):
+async def get_positions(ctx: AuthCtx = Depends(get_auth_ctx)):
     """
     Open positions with live enrichment:
       - mark_price / mark_value_usd: most-recent market_states.price × shares
@@ -314,7 +437,7 @@ async def get_positions(user: str = Depends(get_current_user)):
     Falls back to entry_price as the mark when no market data exists yet, so
     every numeric field is non-null for the frontend.
     """
-    conn = get_db(user)
+    conn = get_db_for(ctx)
     try:
         rows = conn.execute("""
             SELECT op.*,
@@ -453,8 +576,8 @@ def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float,
 
 
 @app.get("/api/equity")
-async def get_equity(user: str = Depends(get_current_user)):
-    conn = get_db(user)
+async def get_equity(ctx: AuthCtx = Depends(get_auth_ctx)):
+    conn = get_db_for(ctx)
     try:
         peak = conn.execute(
             "SELECT peak FROM equity_peak WHERE id=1"
@@ -539,8 +662,8 @@ async def restart_service(user: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to signal engine: {e}")
 
 @app.get("/api/tuning")
-async def get_tuning(user: str = Depends(get_current_user)):
-    conn = get_db(user)
+async def get_tuning(ctx: AuthCtx = Depends(get_auth_ctx)):
+    conn = get_db_for(ctx)
     try:
         log = conn.execute(
             "SELECT * FROM tuning_log ORDER BY id DESC LIMIT 50"
@@ -564,9 +687,9 @@ async def get_tuning(user: str = Depends(get_current_user)):
         conn.close()
 
 
-def _db_path_for_user(user: str) -> str:
-    """Pick the DB file path the get_db dispatch would use for this user."""
-    conn = get_db(user)
+def _db_path_for_ctx(ctx: AuthCtx) -> str:
+    """Resolve the per-user DB file path get_db_for(ctx) would use."""
+    conn = get_db_for(ctx)
     try:
         return conn.execute("PRAGMA database_list").fetchone()[2]
     finally:
@@ -574,16 +697,10 @@ def _db_path_for_user(user: str) -> str:
 
 
 @app.get("/api/tuning/candidate/{log_id}")
-async def get_tuning_candidate(log_id: int, user: str = Depends(get_current_user)):
-    """
-    Forensic detail for a single tuning candidate: proposal record, snapshot
-    state, the trades that drove the proposal, and any trades since (counting
-    toward the shadow validation window). Powers the Tuning page's Inspect
-    modal so the operator can decide whether to reject manually or wait for the
-    validator to make the call.
-    """
+async def get_tuning_candidate(log_id: int, ctx: AuthCtx = Depends(get_auth_ctx)):
+    """Forensic detail for a single tuning candidate."""
     import database as _db
-    detail = _db.get_candidate_detail(log_id, db_path=_db_path_for_user(user))
+    detail = _db.get_candidate_detail(log_id, db_path=_db_path_for_ctx(ctx))
     if detail is None:
         raise HTTPException(status_code=404, detail="candidate not found")
     return detail
@@ -593,27 +710,21 @@ async def get_tuning_candidate(log_id: int, user: str = Depends(get_current_user
 async def reject_tuning_candidate(
     log_id: int,
     body: RejectCandidateBody,
-    user: str = Depends(get_current_user),
+    ctx: AuthCtx = Depends(get_auth_ctx),
 ):
-    """
-    Operator-driven candidate rejection. Admin-only.
-
-    Does NOT bypass the shadow validation gate — this is the OPPOSITE of
-    bypass (manual veto BEFORE the gate completes). The 'Never bypass this
-    gate' CLAUDE.md rule is about promotion, not rejection.
-    """
-    if user == DEMO_USERNAME:
+    """Operator-driven candidate rejection. Admin-only."""
+    if ctx.legacy_username == DEMO_USERNAME:
         raise HTTPException(status_code=403, detail="Demo account is read-only")
     import database as _db
-    ok = _db.reject_candidate(log_id, reason=body.reason, db_path=_db_path_for_user(user))
+    ok = _db.reject_candidate(log_id, reason=body.reason, db_path=_db_path_for_ctx(ctx))
     if not ok:
         raise HTTPException(status_code=404, detail="candidate not found or DB error")
     return {"status": "rejected", "log_id": log_id, "reason": body.reason}
 
 
 @app.get("/api/market")
-async def get_market(user: str = Depends(get_current_user), hours: int = 24):
-    conn = get_db(user)
+async def get_market(ctx: AuthCtx = Depends(get_auth_ctx), hours: int = 24):
+    conn = get_db_for(ctx)
     try:
         rows = conn.execute("""
             SELECT symbol, price, adx, regime, trend, rsi, volume, avg_volume, timestamp
@@ -737,23 +848,31 @@ async def _start_event_drain():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket, token: str = ""):
-    # Authenticate before accepting the connection
-    user = None
+    # Authenticate via the new SaaS JWT; build full AuthCtx so WS ticks
+    # route per-user (each tenant sees their own DB).
     try:
-        payload  = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if username in (API_USERNAME, DEMO_USERNAME):
-            user = username
-    except Exception:
-        pass
-    if user is None:
-        await ws.close(code=1008)
+        claims = core_auth.decode_jwt(token)
+        if claims.get("purpose"):
+            await ws.close(code=1008, reason="Partial token cannot open WS")
+            return
+        user_id = int(claims["sub"])
+    except (AuthError, KeyError, ValueError, TypeError):
+        await ws.close(code=1008, reason="Invalid token")
         return
+    user_obj = core_auth.get_user_by_id(user_id)
+    if not user_obj:
+        await ws.close(code=1008, reason="Account not found")
+        return
+    ws_ctx = AuthCtx(
+        user_id         = user_id,
+        legacy_username = _resolve_legacy_username(user_obj.email),
+    )
+    user = ws_ctx.legacy_username
 
     await manager.connect(ws, user)
     try:
         while True:
-            conn = get_db(user)
+            conn = get_db_for(ws_ctx)
             try:
                 config    = config_manager.load_engine_config()
                 cfg_init  = config.get("risk", {}).get("initial_capital", 25000.0)

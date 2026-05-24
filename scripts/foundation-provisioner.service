@@ -1,0 +1,68 @@
+# Foundation per-user engine provisioner.
+#
+# Host-side daemon that watches ~/swarm/ionic/data/users/_queue/ for
+# *.provision and *.teardown flag files written by the API container,
+# then runs `docker compose up -d` / `docker compose stop+rm` to spin
+# up or tear down per-user `ionic-engine-<id>` containers.
+#
+# Install:
+#     sudo cp ~/swarm/ionic/repo/scripts/foundation-provisioner.service \
+#             /etc/systemd/system/foundation-provisioner.service
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable --now foundation-provisioner
+#
+# Logs:
+#     journalctl -u foundation-provisioner -f
+#     tail -f ~/swarm/ionic/data/users/_queue/audit.log
+#
+# Verify:
+#     systemctl status foundation-provisioner
+#     touch ~/swarm/ionic/data/users/_queue/999.provision    # smoke test
+#
+# Update:
+#     git pull in ~/swarm/ionic/repo
+#     sudo systemctl restart foundation-provisioner
+
+[Unit]
+Description=Foundation per-user engine provisioner
+Documentation=file:///home/blisske/swarm/ionic/repo/SAAS_PROVISIONER_PLAN.md
+# Docker is provided externally (WSL2 + Docker Desktop on this host;
+# may be docker.service on a bare-Linux deployment). Don't hard-require
+# a systemd `docker.service` — that breaks on Docker Desktop systems
+# where the daemon comes from Windows-side, not Linux systemd. After
+# network.target is sufficient: the daemon is tolerant of `docker compose`
+# being unavailable at startup (it just retries every POLL_INTERVAL).
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=blisske
+Group=blisske
+# Working directory must be the swarm root so `docker compose` finds the
+# top-level docker-compose.yml (which includes users.yml.d/*.yml).
+WorkingDirectory=/home/blisske/swarm
+Environment="PYTHONUNBUFFERED=1"
+# Optional overrides — adjust if your layout differs from the defaults:
+# Environment="SWARM_ROOT=/home/blisske/swarm"
+# Environment="IONIC_ROOT=/home/blisske/swarm/ionic"
+# Environment="PROVISIONER_POLL_SEC=5"
+# Environment="IONIC_ENGINE_IMAGE=ionic-engine:latest"
+# Environment="IONIC_ENGINE_NETWORK=ionic-net"
+ExecStart=/usr/bin/python3 /home/blisske/swarm/ionic/repo/scripts/provisioner_daemon.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# A little defense-in-depth — the daemon doesn't need elevated capabilities
+# beyond what the `blisske` user already has via the docker group.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/blisske/swarm
+
+[Install]
+WantedBy=multi-user.target

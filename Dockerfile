@@ -48,8 +48,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Now copy the app. .dockerignore excludes venv/, web/node_modules/, *.db
 # (except demo_data.db), .git, and other build-context noise.
-COPY core/ /app/core/
-COPY api/  /app/api/
+COPY core/    /app/core/
+COPY api/     /app/api/
+COPY scripts/ /app/scripts/
+COPY docs/    /app/docs/
+COPY tests/   /app/tests/
 
 # Non-root user. UID 1000 matches the typical first WSL2 user; bind-mounted
 # host paths created with the matching UID are writable without chown gymnastics.
