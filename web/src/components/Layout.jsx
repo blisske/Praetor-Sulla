@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth.jsx'
-import { LayoutDashboard, History, FlaskConical, LogOut, BarChart2, Settings, SlidersHorizontal, Menu, X, Sun, Moon, BookOpen, UserCog, ShieldCheck } from 'lucide-react'
+import { LayoutDashboard, History, FlaskConical, LogOut, BarChart2, Settings, SlidersHorizontal, Menu, X, Sun, Moon, BookOpen, UserCog, ShieldCheck, FileText } from 'lucide-react'
 import { useTheme } from '../lib/theme.jsx'
 import DemoModeBanner from './DemoModeBanner.jsx'
 import TosReacceptModal from './TosReacceptModal.jsx'
@@ -50,12 +50,13 @@ function FoundationMark({ size = 22 }) {
 
 // Trading-app nav (top of sidebar — bot operations)
 const nav = [
-  { to: '/',        icon: LayoutDashboard,   label: 'Dashboard' },
-  { to: '/trades',  icon: History,           label: 'Trades'    },
-  { to: '/tuning',  icon: FlaskConical,      label: 'Tuning'    },
-  { to: '/market',  icon: BarChart2,         label: 'Market'    },
-  { to: '/config',  icon: SlidersHorizontal, label: 'Config'    },
-  { to: '/guide',   icon: BookOpen,          label: 'Guide'     },
+  { to: '/',             icon: LayoutDashboard,   label: 'Dashboard' },
+  { to: '/trades',       icon: History,           label: 'Trades'    },
+  { to: '/tuning',       icon: FlaskConical,      label: 'Tuning'    },
+  { to: '/market',       icon: BarChart2,         label: 'Market'    },
+  { to: '/config',       icon: SlidersHorizontal, label: 'Config'    },
+  { to: '/reports/tax',  icon: FileText,          label: 'Tax'       },
+  { to: '/guide',        icon: BookOpen,          label: 'Guide'     },
 ]
 
 // Account-level nav (bottom of sidebar — user profile + broker + mode)

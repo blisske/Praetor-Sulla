@@ -1,7 +1,89 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-23 (file-structure cleanup: sulla → ionic)
+> Last updated: 2026-05-24 (tax-reporting MVP — FX §988 ordinary-income flavor)
+
+---
+
+## 2026-05-24 — Tax-reporting MVP + per-user healthcheck flap fix (preemptive)
+
+**Tax-reporting MVP — FX §988 flavor.** Same architecture as Corinthian's
++ Doric's tax ships earlier today, but adapted for FX-specific tax
+treatment. Per-user, year-scoped, FIFO/LIFO/HIFO lot matching (informational
+under §988), CSV export. "Not tax advice" disclaimer + §988 specifics on
+every screen.
+
+**Why §988 matters:**
+- US default for retail spot FX = IRC §988 ordinary income — NOT capital
+  gains. No short/long-term split. Reported on Schedule 1 line 8z or
+  Form 6781 line 1.
+- §988(a)(1)(B) opt-out into capital-gains treatment exists but is rare
+  for retail.
+- Section 1256 (60/40 rule) doesn't apply to Oanda spot.
+
+**Backend:**
+- `core/tax.py` — pure-function lot matcher. Same FIFO/LIFO/HIFO machinery
+  as the cap-gains bots (preserved for record-keeping clarity) but `term`
+  field collapses to always `'ordinary'`. `holding_days` is still computed
+  for informational display. `LONG_TERM_DAYS` constant removed; replaced
+  with `TERM_ORDINARY = "ordinary"`. Module docstring rewritten end-to-end
+  with §988 background + §988(a)(1)(B) opt-out warning + §1256
+  non-applicability.
+- `api/tax.py` — five endpoints. `SummaryResponse` reshaped:
+  `total_ordinary_gain` + `ordinary_count` instead of short/long split.
+  DISCLAIMER text mentions §988 specifics. CSV header reads
+  "Foundation Ionic — tax report (FX, §988 ordinary income)" and the
+  Term column comment reflects "always 'ordinary'" instead of Box A/B
+  routing.
+- `core/database.py` — `trades.fee_usd REAL DEFAULT 0.0` + idempotent
+  ALTER TABLE + `log_trade()` signature extended. For Phase 1 scaffold
+  this is always 0.0; Phase 2 (Oanda v20 broker integration) will derive
+  it from the spread + financing in the trade-transaction stream. Oanda
+  has no separate commission on standard accounts.
+
+**Frontend (matches existing gold theme — Ionic UI was never re-themed to
+blue per CLAUDE.md; separate cleanup task):**
+- `web/src/pages/reports/Tax.jsx` — §988-shaped layout: dropped the
+  Short-term / Long-term summary cards (replaced with single
+  "Ordinary income" card), dropped the Term chip column from the
+  disposals table, methodology footnote rewritten with §988 background.
+  Header now reads "Mechanical year-end FX report under IRC §988".
+- `web/src/pages/settings/Trading.jsx` — `TaxMethodCard` with §988-
+  flavored disclaimer (no short/long-term, opt-out warning, "lot choice
+  is informational under §988"). FIFO blurbs adapted for scalping +
+  opt-out scenarios.
+- `web/src/components/Layout.jsx` + `App.jsx` — Tax nav link + route.
+
+**Tests:** `tests/test_tax.py` — 32 tests, all passing
+(`docker exec -w /app ionic-api python3 -m unittest tests.test_tax`).
+28 ported from Doric + 4 new §988-specific:
+- `Section988OrdinaryTermTests` — replaces the deleted
+  `HoldingPeriodBoundaryTests` class. Verifies term is 'ordinary' for
+  short hold, long hold, AND zero-day hold (scalp).
+- `Section988SummaryTests` — verifies summarize() returns
+  `total_ordinary_gain` + `ordinary_count`, asserts capital-gains keys
+  (`short_term_gain`, `long_term_gain`, `short_count`, `long_count`) are
+  ABSENT, asserts `total_ordinary_gain == realized_gain` invariant.
+
+**Phase 1 scaffold context:** Ionic has no live broker yet (Phase 2 is
+Oanda integration). No real trades exist to compute against; the page
+will show an empty state with the §988 disclaimer until fills start
+landing. Schema + endpoints are ready; tax math has been validated
+against synthetic data via the test suite.
+
+**Cross-bot provisioner healthcheck flap fix.** Same fix that landed in
+Corinthian (71f8124) + Doric (d157078) earlier today — `-mmin -2` →
+`-mmin -10` in `scripts/provisioner_daemon.py` template. No Ionic per-user
+engines exist yet so this is preemptive (template only; no live fragments
+to patch).
+
+**Known caveats (shipped as-is):**
+- Whole UI still themed gold (`#c8922a`) — separate cleanup task to
+  re-theme Ionic to its proper blue (`#3B82F6`).
+- `fee_usd` is always 0.0 until Phase 2 — derived from Oanda spread +
+  financing once the broker adapter lands.
+- §988(a)(1)(B) opt-out + §1256 election aren't modeled. Disclaimer
+  covers it.
 
 ---
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import api from '../../lib/api.js'
 import SettingsCard from '../../components/SettingsCard.jsx'
-import { Shield, AlertTriangle, RotateCcw } from 'lucide-react'
+import { Shield, AlertTriangle, RotateCcw, Calculator, Info } from 'lucide-react'
 import { useAuth } from '../../lib/auth.jsx'
 
 /**
@@ -181,6 +181,205 @@ function RiskRow({ field, current, ceiling, floor, draft, setDraft, disabled }) 
         {outOfBounds && ` · value must be between ${floor} and ${ceiling}`}
       </div>
     </div>
+  )
+}
+
+
+// ─── Tax-method picker (FX §988 flavor) ───────────────────────────────────
+// Under IRC §988 default treatment, retail spot FX gains are ordinary
+// income — there's no short/long-term split and FIFO/LIFO/HIFO doesn't
+// actually change the tax result (gains aggregate regardless of which
+// lot was matched). We expose the picker anyway for record-keeping
+// clarity and so the choice is documented if the user later elects
+// §988(a)(1)(B) opt-out into capital-gains treatment.
+//
+// Backend:
+//   GET  /api/user/tax/method   → { method: 'FIFO' | 'LIFO' | 'HIFO' }
+//   POST /api/user/tax/method   → persist new method to user Config.yaml
+const TAX_METHODS = [
+  {
+    key:   'FIFO',
+    label: 'FIFO — First In, First Out',
+    blurb: 'Conservative default. Oldest lots disposed first. Simplest to defend on audit.',
+  },
+  {
+    key:   'LIFO',
+    label: 'LIFO — Last In, First Out',
+    blurb: 'Newest lots disposed first. Useful for record clarity in scalping strategies.',
+  },
+  {
+    key:   'HIFO',
+    label: 'HIFO — Highest In, First Out',
+    blurb: 'Highest-cost-basis lots disposed first. Most relevant if you elect §988(a)(1)(B) opt-out into capital-gains treatment.',
+  },
+]
+
+function TaxMethodCard({ isDemo }) {
+  const [saved,    setSaved]    = useState(null)
+  const [draft,    setDraft]    = useState(null)
+  const [loading,  setLoading]  = useState(true)
+  const [busy,     setBusy]     = useState(false)
+  const [err,      setErr]      = useState('')
+  const [ok,       setOk]       = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true); setErr('')
+    api.get('/user/tax/method')
+      .then(r => {
+        if (cancelled) return
+        const m = (r?.data?.method || 'FIFO').toUpperCase()
+        setSaved(m); setDraft(m); setLoading(false)
+      })
+      .catch(e => {
+        if (cancelled) return
+        const s = e?.response?.status
+        if (s === 503) setErr('Your trading workspace is still being set up.')
+        else           setErr('Could not load your tax-method preference.')
+        setSaved('FIFO'); setDraft('FIFO'); setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const changed = draft && saved && draft !== saved
+
+  const save = async () => {
+    if (!changed) return
+    setBusy(true); setErr(''); setOk('')
+    try {
+      const { data } = await api.post('/user/tax/method', { method: draft })
+      const m = (data?.method || draft).toUpperCase()
+      setSaved(m); setDraft(m)
+      setOk(`Saved — tax reports now default to ${m}.`)
+    } catch (e) {
+      setErr(e?.response?.data?.detail || 'Save failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <SettingsCard title="Tax accounting method">
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+          Loading your preference…
+        </p>
+      </SettingsCard>
+    )
+  }
+
+  return (
+    <SettingsCard
+      title="Tax accounting method"
+      subtitle="Default lot-matching method used when generating year-end FX tax reports. Lot choice is informational under §988 default treatment but matters if you elect §988(a)(1)(B) opt-out."
+    >
+      {/* §988-specific disclaimer — FX tax treatment is genuinely different */}
+      <div style={{
+        background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.18)',
+        borderRadius: '0.4rem', padding: '0.7rem 0.85rem', marginBottom: '1rem',
+        display: 'flex', alignItems: 'flex-start', gap: '0.55rem',
+      }}>
+        <AlertTriangle size={15} style={{ color: '#f87171', flexShrink: 0, marginTop: 2 }} />
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-primary)', margin: 0, lineHeight: 1.55 }}>
+          <strong>Not tax advice.</strong> Under IRC §988 default, retail spot FX gains
+          are <strong>ordinary income</strong> (Schedule 1 line 8z or Form 6781 line 1) —
+          NOT capital gains. No short/long-term split. The §988(a)(1)(B) opt-out into
+          capital-gains treatment exists but is rare for retail. Verify with a CPA.
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+        {TAX_METHODS.map(opt => {
+          const selected = draft === opt.key
+          return (
+            <label
+              key={opt.key}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                padding: '0.85rem 1rem',
+                background: selected ? 'rgba(200,146,42,0.08)' : 'var(--bg-elevated)',
+                border: `1px solid ${selected ? 'rgba(200,146,42,0.45)' : 'var(--border)'}`,
+                borderRadius: '0.4rem',
+                cursor: isDemo ? 'not-allowed' : 'pointer',
+                opacity: isDemo ? 0.55 : 1,
+                transition: 'background 120ms, border-color 120ms',
+              }}
+            >
+              <input
+                type="radio"
+                name="tax_method"
+                value={opt.key}
+                checked={selected}
+                disabled={isDemo || busy}
+                onChange={() => { setDraft(opt.key); setOk(''); setErr('') }}
+                style={{ accentColor: '#c8922a', marginTop: 3, flexShrink: 0 }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontSize: '0.9rem', fontWeight: 700,
+                  color: 'var(--text-primary)', marginBottom: '0.25rem',
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                }}>
+                  <Calculator size={14} style={{ color: '#c8922a' }} />
+                  {opt.label}
+                  {saved === opt.key && (
+                    <span style={{
+                      fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em',
+                      textTransform: 'uppercase', color: '#c8922a',
+                      border: '1px solid rgba(200,146,42,0.4)',
+                      borderRadius: '0.25rem', padding: '0.1rem 0.35rem',
+                    }}>
+                      saved
+                    </span>
+                  )}
+                </div>
+                <p style={{
+                  fontSize: '0.78rem', color: 'var(--text-muted)',
+                  margin: 0, lineHeight: 1.55,
+                }}>
+                  {opt.blurb}
+                </p>
+              </div>
+            </label>
+          )
+        })}
+      </div>
+
+      {isDemo && (
+        <p style={{
+          marginTop: '0.85rem', fontSize: '0.76rem',
+          color: 'var(--text-muted)', fontStyle: 'italic',
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+        }}>
+          <Info size={13} /> Read-only in demo mode.
+        </p>
+      )}
+
+      <div style={{
+        marginTop: '1rem', display: 'flex',
+        alignItems: 'center', justifyContent: 'space-between', gap: '1rem',
+      }}>
+        <div style={{ minHeight: 24 }}>
+          {ok  && <span style={{ fontSize: '0.82rem', color: '#22c55e' }}>{ok}</span>}
+          {err && <span style={{ fontSize: '0.82rem', color: '#fca5a5' }}>{err}</span>}
+        </div>
+        <button
+          onClick={save}
+          disabled={!changed || busy || isDemo}
+          style={{
+            background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+            color: '#1a1a1a', border: 'none',
+            padding: '0.6rem 1.3rem',
+            fontSize: '0.83rem', fontWeight: 700,
+            letterSpacing: '0.08em', textTransform: 'uppercase',
+            borderRadius: '0.35rem', cursor: (!changed || busy || isDemo) ? 'not-allowed' : 'pointer',
+            opacity: (!changed || busy || isDemo) ? 0.5 : 1,
+          }}
+        >
+          {busy ? 'Saving…' : 'Save method'}
+        </button>
+      </div>
+    </SettingsCard>
   )
 }
 
@@ -381,6 +580,8 @@ export default function SettingsTrading() {
           <li><strong>Daily-loss halt</strong> compares current equity to UTC-midnight equity — auto-resets at the next midnight.</li>
         </ul>
       </SettingsCard>
+
+      <TaxMethodCard isDemo={isDemo} />
     </div>
   )
 }

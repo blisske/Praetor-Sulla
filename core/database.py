@@ -48,12 +48,24 @@ def init_db():
                 amount            REAL,
                 strategy          TEXT,
                 verdict           TEXT,
-                position_size_usd REAL DEFAULT 0.0
+                position_size_usd REAL DEFAULT 0.0,
+                fee_usd           REAL DEFAULT 0.0
             )
         ''')
         # Idempotent add for existing DBs predating the position_size_usd column.
         try:
             c.execute("ALTER TABLE trades ADD COLUMN position_size_usd REAL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        # Idempotent add for existing DBs predating the fee_usd column (2026-05-24).
+        # Used by core/tax.py for §988 ordinary-income attribution. For Phase 1
+        # scaffold this is always 0.0; Phase 2 (Oanda broker integration) will
+        # capture spread + commission from the v20 trade transaction stream.
+        # Oanda's effective cost is mostly spread (no separate commission on
+        # standard accounts) — extracting it requires comparing fill price to
+        # mid-quote at submit time. See Phase 2 plan.
+        try:
+            c.execute("ALTER TABLE trades ADD COLUMN fee_usd REAL DEFAULT 0.0")
         except sqlite3.OperationalError:
             pass  # column already exists
 
@@ -272,12 +284,17 @@ def emit_event(event_type: str, payload: dict) -> None:
         logger.warning(f"emit_event({event_type}) failed: {e}")
 
 
-def log_trade(symbol, action, price, amount, strategy, verdict="", position_size_usd=0.0):
+def log_trade(symbol, action, price, amount, strategy, verdict="", position_size_usd=0.0, fee_usd=0.0):
     """
     Writes a new trade event to the ledger.
 
     position_size_usd stores the dollar exposure at fill time, independent
     of price drift afterward — useful for the tuner + risk analytics.
+
+    fee_usd is the total cost for THIS fill in USD. Used by core/tax.py
+    for §988 ordinary-income attribution. For Phase 1 scaffold this is
+    always 0.0; Phase 2 (Oanda broker integration) will derive it from
+    the spread + financing charges in the v20 trade transaction stream.
 
     Side effect: emits a `trade` WS event for SHADOW BUY / SHADOW SELL /
     SHADOW BUY ADD actions so the dashboard sees fills in real time without
@@ -287,9 +304,9 @@ def log_trade(symbol, action, price, amount, strategy, verdict="", position_size
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute('''
-            INSERT INTO trades (symbol, action, price, amount, strategy, verdict, position_size_usd)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (symbol, action, price, amount, strategy, verdict, position_size_usd))
+            INSERT INTO trades (symbol, action, price, amount, strategy, verdict, position_size_usd, fee_usd)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (symbol, action, price, amount, strategy, verdict, position_size_usd, fee_usd))
         conn.commit()
         conn.close()
     except Exception as e:

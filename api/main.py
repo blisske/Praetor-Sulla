@@ -72,6 +72,7 @@ from api.legal    import router as _legal_router     # noqa: E402 (public no-aut
 from api.risk     import router as _risk_router      # noqa: E402 (user-settable risk caps)
 from api.totp     import router as _totp_router      # noqa: E402 (2FA enrollment + mgmt)
 from api.provision import router as _provision_router # noqa: E402 (click-to-provision)
+from api.tax       import router as _tax_router        # noqa: E402 (FX §988 tax-disposal reporting)
 app.include_router(_auth_router)
 app.include_router(_byok_router)
 app.include_router(_mode_router)
@@ -82,6 +83,7 @@ app.include_router(_legal_router)
 app.include_router(_risk_router)
 app.include_router(_totp_router)
 app.include_router(_provision_router)
+app.include_router(_tax_router)
 
 @app.on_event("startup")
 async def startup():

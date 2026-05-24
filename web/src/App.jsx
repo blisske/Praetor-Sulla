@@ -15,6 +15,7 @@ import Config from './pages/Config.jsx'
 import Guide from './pages/Guide.jsx'
 import Layout from './components/Layout.jsx'
 import Settings from './pages/Settings.jsx'
+import ReportsTax from './pages/reports/Tax.jsx'
 import SettingsAccount from './pages/settings/Account.jsx'
 import SettingsBroker  from './pages/settings/Broker.jsx'
 import SettingsTrading from './pages/settings/Trading.jsx'
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="market" element={<Market />} />
         <Route path="config" element={<Config />} />
         <Route path="guide" element={<Guide />} />
+        <Route path="reports/tax" element={<ReportsTax />} />
         <Route path="settings" element={<Settings />}>
           <Route index element={<Navigate to="/settings/account" replace />} />
           <Route path="account" element={<SettingsAccount />} />
