@@ -129,9 +129,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
+      # 10-min staleness window matches the operator's Dockerfile baseline
+      # (-mmin -10). Tighter values (e.g. -mmin -2) cause healthcheck flapping
+      # because the engine only touches the heartbeat at cycle START and a
+      # user's `update_interval_min` can legitimately be 5-15 minutes.
       test:
         - CMD-SHELL
-        - 'find /app/data/users/{user_id}/.engine_heartbeat -mmin -2 | grep -q . || exit 1'
+        - 'find /app/data/users/{user_id}/.engine_heartbeat -mmin -10 | grep -q . || exit 1'
       interval: 60s
       timeout: 5s
       retries: 3
