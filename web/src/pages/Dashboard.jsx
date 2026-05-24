@@ -393,7 +393,7 @@ export default function Dashboard() {
     })
 
     const proto  = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const token  = localStorage.getItem('ionic_token') || ''
+    const token  = localStorage.getItem('token') || ''
     const socket = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`)
     socket.onmessage = e => {
       const d = JSON.parse(e.data)
