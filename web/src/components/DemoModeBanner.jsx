@@ -40,7 +40,7 @@ export default function DemoModeBanner() {
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
         <Link to="/signup" style={{
-          background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+          background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
           color: '#1a1a1a',
           textDecoration: 'none',
           padding: '0.35rem 0.9rem',

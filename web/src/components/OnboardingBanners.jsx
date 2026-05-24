@@ -19,7 +19,7 @@ import { useAuth } from '../lib/auth.jsx'
  * but is self-contained — it makes its own /api calls (resend, byok status
  * for "Oanda connected" check, /user/mode for "shadow mode" check).
  */
-const GOLD = '#c8922a'
+const BLUE = '#3B82F6'
 
 
 export default function OnboardingBanners() {
@@ -172,22 +172,22 @@ function OnboardingChecklist() {
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: '1rem',
-      background: 'linear-gradient(135deg, rgba(200,146,42,0.10) 0%, rgba(200,146,42,0.04) 100%)',
-      border: '1px solid rgba(200,146,42,0.28)',
-      borderLeft: `3px solid ${GOLD}`,
+      background: 'linear-gradient(135deg, rgba(59,130,246,0.10) 0%, rgba(59,130,246,0.04) 100%)',
+      border: '1px solid rgba(59,130,246,0.28)',
+      borderLeft: `3px solid ${BLUE}`,
       borderRadius: '0.5rem',
       padding: '1.1rem 1.25rem',
       marginBottom: '1rem',
     }}>
-      <Sparkles size={20} style={{ color: GOLD, flexShrink: 0, marginTop: 2 }} />
+      <Sparkles size={20} style={{ color: BLUE, flexShrink: 0, marginTop: 2 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', marginBottom: '0.3rem' }}>
           <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
             Welcome to Foundation
           </span>
           <span style={{
-            fontSize: '0.72rem', fontWeight: 600, color: GOLD,
-            background: 'rgba(200,146,42,0.12)',
+            fontSize: '0.72rem', fontWeight: 600, color: BLUE,
+            background: 'rgba(59,130,246,0.12)',
             padding: '0.1rem 0.5rem', borderRadius: 4, letterSpacing: '0.06em',
           }}>
             {completed} of {steps.length} complete
@@ -242,7 +242,7 @@ function ChecklistRow({ step }) {
       </div>
       {!step.done && step.to && (
         <Link to={step.to} style={{
-          color: GOLD,
+          color: BLUE,
           textDecoration: 'none',
           fontSize: '0.78rem',
           fontWeight: 600,

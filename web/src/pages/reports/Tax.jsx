@@ -25,7 +25,7 @@ import { AlertTriangle, Download, Info, FileText, Calculator } from 'lucide-reac
  */
 
 const ORANGE = '#F7931A'
-const GOLD   = '#c8922a'
+const BLUE   = '#3B82F6'
 
 const METHODS = ['FIFO', 'LIFO', 'HIFO']
 
@@ -38,7 +38,7 @@ const fmtUsd = n => {
 }
 const fmtQty = n => {
   if (n === null || n === undefined || Number.isNaN(n)) return '—'
-  // Doric trades in whole shares — no need for crypto-style fractional precision
+  // FX units of base currency — typically 4 dp is plenty (e.g. 10000.00 EUR units)
   return Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })
 }
 const fmtDate = s => (s ? String(s).slice(0, 10) : '—')   // YYYY-MM-DD
@@ -202,7 +202,7 @@ export default function Tax() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FileText size={20} style={{ color: GOLD }} /> Tax disposals
+            <FileText size={20} style={{ color: BLUE }} /> Tax disposals
           </h1>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
             Mechanical year-end FX report under IRC §988 (ordinary income — Sched 1 line 8z).
@@ -220,7 +220,7 @@ export default function Tax() {
           disabled={!report || csvBusy || (report?.disposals?.length ?? 0) === 0}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: '0.45rem',
-            background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+            background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
             color: '#1a1a1a', border: 'none',
             padding: '0.55rem 1rem', borderRadius: '0.4rem',
             fontSize: '0.82rem', fontWeight: 700,
@@ -290,9 +290,9 @@ export default function Tax() {
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                   padding: '0.4rem 0.75rem',
-                  background: active ? GOLD : 'var(--bg-elevated)',
+                  background: active ? BLUE : 'var(--bg-elevated)',
                   color: active ? '#1a1a1a' : 'var(--text-sub)',
-                  border: active ? `1px solid ${GOLD}` : '1px solid var(--border)',
+                  border: active ? `1px solid ${BLUE}` : '1px solid var(--border)',
                   borderRadius: '0.35rem',
                   fontSize: '0.82rem', fontWeight: 600,
                   cursor: 'pointer', transition: 'background 0.15s, color 0.15s',
@@ -328,9 +328,9 @@ export default function Tax() {
                 title={m === savedMethod ? `Your saved default (${m})` : `Override to ${m}`}
                 style={{
                   padding: '0.4rem 0.65rem',
-                  background: active ? GOLD : 'var(--bg-elevated)',
+                  background: active ? BLUE : 'var(--bg-elevated)',
                   color: active ? '#1a1a1a' : 'var(--text-sub)',
-                  border: active ? `1px solid ${GOLD}` : '1px solid var(--border)',
+                  border: active ? `1px solid ${BLUE}` : '1px solid var(--border)',
                   borderRadius: '0.35rem',
                   fontSize: '0.78rem', fontWeight: 700,
                   letterSpacing: '0.04em',

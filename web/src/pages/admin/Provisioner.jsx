@@ -173,7 +173,7 @@ export default function AdminProvisioner() {
                       <tr key={i}>
                         <Td dim>{r.ts ? new Date(r.ts).toLocaleString() : '—'}</Td>
                         <Td><code style={{ fontSize: '0.78rem' }}>{r.action}</code></Td>
-                        <Td><Link to={`/admin/users/${r.user_id}`} style={{ color: '#c8922a', textDecoration: 'none' }}>#{r.user_id}</Link></Td>
+                        <Td><Link to={`/admin/users/${r.user_id}`} style={{ color: '#3B82F6', textDecoration: 'none' }}>#{r.user_id}</Link></Td>
                         <Td>
                           {r.ok ? (
                             <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: 600 }}>OK</span>
@@ -220,7 +220,7 @@ function SectionHeader({ children }) {
   return (
     <h2 style={{
       fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.12em',
-      textTransform: 'uppercase', color: '#c8922a',
+      textTransform: 'uppercase', color: '#3B82F6',
       margin: 0, marginBottom: '0.7rem',
     }}>
       {children}

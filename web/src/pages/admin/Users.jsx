@@ -45,7 +45,7 @@ export default function AdminUsers() {
             type="checkbox"
             checked={showDeleted}
             onChange={e => setShowDeleted(e.target.checked)}
-            style={{ accentColor: '#c8922a' }}
+            style={{ accentColor: '#3B82F6' }}
           />
           Include soft-deleted
         </label>
@@ -155,8 +155,8 @@ function UserRow({ user }) {
       <Td>
         {user.is_admin ? (
           <span style={{
-            fontSize: '0.7rem', color: '#c8922a', fontWeight: 700, letterSpacing: '0.06em',
-            background: 'rgba(200,146,42,0.12)', padding: '0.1rem 0.45rem', borderRadius: 4,
+            fontSize: '0.7rem', color: '#3B82F6', fontWeight: 700, letterSpacing: '0.06em',
+            background: 'rgba(59,130,246,0.12)', padding: '0.1rem 0.45rem', borderRadius: 4,
           }}>
             ADMIN
           </span>
@@ -177,7 +177,7 @@ function UserRow({ user }) {
       </Td>
       <Td>
         <Link to={`/admin/users/${user.id}`} style={{
-          color: '#c8922a', textDecoration: 'none', fontSize: '0.82rem', fontWeight: 600,
+          color: '#3B82F6', textDecoration: 'none', fontSize: '0.82rem', fontWeight: 600,
           display: 'inline-flex', alignItems: 'center', gap: 2,
         }}>
           Detail <ChevronRight size={14} />

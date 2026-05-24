@@ -90,8 +90,8 @@ export default function AdminUserDetail() {
             #{user.id} · {user.email}
             {user.is_admin && (
               <span style={{
-                marginLeft: '0.6rem', fontSize: '0.65rem', color: '#c8922a', fontWeight: 700, letterSpacing: '0.1em',
-                background: 'rgba(200,146,42,0.12)', padding: '0.12rem 0.5rem', borderRadius: 4,
+                marginLeft: '0.6rem', fontSize: '0.65rem', color: '#3B82F6', fontWeight: 700, letterSpacing: '0.1em',
+                background: 'rgba(59,130,246,0.12)', padding: '0.12rem 0.5rem', borderRadius: 4,
                 verticalAlign: 'middle',
               }}>
                 ADMIN
@@ -105,7 +105,7 @@ export default function AdminUserDetail() {
           </p>
         </div>
         <button onClick={restartEngine} style={{
-          background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+          background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
           color: '#1a1a1a', border: 'none', padding: '0.55rem 1rem',
           fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.06em',
           textTransform: 'uppercase', borderRadius: '0.35rem', cursor: 'pointer',
@@ -320,7 +320,7 @@ function SectionHeader({ children }) {
   return (
     <h2 style={{
       fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.12em',
-      textTransform: 'uppercase', color: '#c8922a',
+      textTransform: 'uppercase', color: '#3B82F6',
       margin: 0, marginBottom: '0.7rem',
     }}>
       {children}

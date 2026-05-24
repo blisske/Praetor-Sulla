@@ -22,7 +22,7 @@ import { useAuth } from '../../lib/auth.jsx'
  *   - Confirmation modal before flipping live → shadow OR shadow → live
  */
 const btnStyle = {
-  background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+  background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
   color: '#1a1a1a',
   border: 'none',
   fontSize: '0.83rem',
@@ -38,7 +38,7 @@ const btnStyle = {
 
 function ModeCard({ value, current, label, blurb, icon: Icon, disabled, onSelect }) {
   const active = value === current
-  const accent = value === 'live' ? '#22c55e' : '#c8922a'
+  const accent = value === 'live' ? '#22c55e' : '#3B82F6'
   return (
     <button
       type="button"
@@ -107,7 +107,7 @@ function ConfirmModal({
         maxWidth: 460,
         background: 'var(--bg-surface)',
         border: '1px solid var(--border)',
-        borderTop: `2px solid ${isLive ? '#22c55e' : '#c8922a'}`,
+        borderTop: `2px solid ${isLive ? '#22c55e' : '#3B82F6'}`,
         borderRadius: '0.5rem',
         padding: '1.5rem',
       }}>
@@ -183,7 +183,7 @@ function ConfirmModal({
             ...btnStyle,
             background: isLive
               ? 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)'
-              : 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+              : 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
             color: isLive ? '#fff' : '#1a1a1a',
             opacity: (busy || (inOtpStep && otpCode.length !== 6)) ? 0.5 : 1,
           }}>
@@ -328,7 +328,7 @@ export default function SettingsMode() {
             <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
               {status.gate_reason}
               {!status.broker_scope && (
-                <> <Link to="/settings/broker" style={{ color: '#c8922a', fontWeight: 600 }}>
+                <> <Link to="/settings/broker" style={{ color: '#3B82F6', fontWeight: 600 }}>
                   Connect your Oanda key →
                 </Link></>
               )}

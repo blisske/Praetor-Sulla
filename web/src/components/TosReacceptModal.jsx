@@ -99,7 +99,7 @@ export default function TosReacceptModal({ user, isDemo, onAccepted, onSignOut }
         maxHeight: '90vh',
         background: 'var(--bg-surface)',
         border: '1px solid var(--border)',
-        borderTop: '3px solid #c8922a',
+        borderTop: '3px solid #3B82F6',
         borderRadius: '0.5rem',
         display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
@@ -157,11 +157,11 @@ export default function TosReacceptModal({ user, isDemo, onAccepted, onSignOut }
             margin: 0, marginBottom: '0.9rem', lineHeight: 1.5,
           }}>
             Also available as a standalone page:{' '}
-            <Link to="/terms" target="_blank" style={{ color: '#c8922a', fontWeight: 600 }}>
+            <Link to="/terms" target="_blank" style={{ color: '#3B82F6', fontWeight: 600 }}>
               Open in new tab
             </Link>
             {' · '}
-            <Link to="/privacy" target="_blank" style={{ color: '#c8922a', fontWeight: 600 }}>
+            <Link to="/privacy" target="_blank" style={{ color: '#3B82F6', fontWeight: 600 }}>
               Privacy Policy
             </Link>
           </p>
@@ -175,7 +175,7 @@ export default function TosReacceptModal({ user, isDemo, onAccepted, onSignOut }
               Sign out
             </button>
             <button onClick={accept} disabled={busy || !docBody} style={{
-              background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+              background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
               color: '#1a1a1a', border: 'none',
               padding: '0.65rem 1.4rem',
               fontSize: '0.85rem', fontWeight: 700,

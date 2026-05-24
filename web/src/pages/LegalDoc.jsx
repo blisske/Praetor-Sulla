@@ -119,7 +119,7 @@ function mdToHtml(md) {
     // Headings
     if (/^### /.test(trimmed)) {
       flushList(); flushTable()
-      out.push(`<h3 style="margin: 1.4rem 0 0.5rem; color: #c8922a; font-size: 0.95rem;">${inline(trimmed.slice(4))}</h3>`)
+      out.push(`<h3 style="margin: 1.4rem 0 0.5rem; color: #3B82F6; font-size: 0.95rem;">${inline(trimmed.slice(4))}</h3>`)
     } else if (/^## /.test(trimmed)) {
       flushList(); flushTable()
       out.push(`<h2 style="margin: 1.6rem 0 0.6rem; color: #fcd34d; font-size: 1.05rem;">${inline(trimmed.slice(3))}</h2>`)
@@ -139,7 +139,7 @@ function mdToHtml(md) {
       // Detect separator row → header was on previous line
       if (cells.every(c => /^[-:]+$/.test(c))) {
         // Start the table body — replace the last emitted line with a <thead>
-        const headerHtml = '<thead><tr>' + tableHeader.map(c => `<th style="text-align: left; padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--border); color: #c8922a; font-weight: 600; font-size: 0.78rem;">${inline(c)}</th>`).join('') + '</tr></thead>'
+        const headerHtml = '<thead><tr>' + tableHeader.map(c => `<th style="text-align: left; padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--border); color: #3B82F6; font-weight: 600; font-size: 0.78rem;">${inline(c)}</th>`).join('') + '</tr></thead>'
         out.push(`<table style="width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.82rem;">${headerHtml}<tbody>`)
         inTable = true
       } else if (inTable) {
@@ -184,6 +184,6 @@ function inline(s) {
   // 3. Bold **text**
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   // 4. Links [label](url) — note the inline style is appended via concatenation
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #c8922a;">$1</a>')
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #3B82F6;">$1</a>')
   return out
 }

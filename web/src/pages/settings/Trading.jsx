@@ -158,7 +158,7 @@ function RiskRow({ field, current, ceiling, floor, draft, setDraft, disabled }) 
           onChange={e => setDraft(field.key, e.target.value)}
           style={{
             flex: 1,
-            accentColor: '#c8922a',
+            accentColor: '#3B82F6',
           }}
         />
         <div style={{
@@ -172,7 +172,7 @@ function RiskRow({ field, current, ceiling, floor, draft, setDraft, disabled }) 
 
       <div style={{
         marginTop: '0.4rem',
-        fontSize: '0.7rem', color: changed ? '#c8922a' : 'var(--text-muted)',
+        fontSize: '0.7rem', color: changed ? '#3B82F6' : 'var(--text-muted)',
         fontStyle: 'italic',
         opacity: 0.85,
       }}>
@@ -297,8 +297,8 @@ function TaxMethodCard({ isDemo }) {
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
                 padding: '0.85rem 1rem',
-                background: selected ? 'rgba(200,146,42,0.08)' : 'var(--bg-elevated)',
-                border: `1px solid ${selected ? 'rgba(200,146,42,0.45)' : 'var(--border)'}`,
+                background: selected ? 'rgba(59,130,246,0.08)' : 'var(--bg-elevated)',
+                border: `1px solid ${selected ? 'rgba(59,130,246,0.45)' : 'var(--border)'}`,
                 borderRadius: '0.4rem',
                 cursor: isDemo ? 'not-allowed' : 'pointer',
                 opacity: isDemo ? 0.55 : 1,
@@ -312,7 +312,7 @@ function TaxMethodCard({ isDemo }) {
                 checked={selected}
                 disabled={isDemo || busy}
                 onChange={() => { setDraft(opt.key); setOk(''); setErr('') }}
-                style={{ accentColor: '#c8922a', marginTop: 3, flexShrink: 0 }}
+                style={{ accentColor: '#3B82F6', marginTop: 3, flexShrink: 0 }}
               />
               <div style={{ flex: 1 }}>
                 <div style={{
@@ -320,13 +320,13 @@ function TaxMethodCard({ isDemo }) {
                   color: 'var(--text-primary)', marginBottom: '0.25rem',
                   display: 'flex', alignItems: 'center', gap: '0.4rem',
                 }}>
-                  <Calculator size={14} style={{ color: '#c8922a' }} />
+                  <Calculator size={14} style={{ color: '#3B82F6' }} />
                   {opt.label}
                   {saved === opt.key && (
                     <span style={{
                       fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em',
-                      textTransform: 'uppercase', color: '#c8922a',
-                      border: '1px solid rgba(200,146,42,0.4)',
+                      textTransform: 'uppercase', color: '#3B82F6',
+                      border: '1px solid rgba(59,130,246,0.4)',
                       borderRadius: '0.25rem', padding: '0.1rem 0.35rem',
                     }}>
                       saved
@@ -367,7 +367,7 @@ function TaxMethodCard({ isDemo }) {
           onClick={save}
           disabled={!changed || busy || isDemo}
           style={{
-            background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+            background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
             color: '#1a1a1a', border: 'none',
             padding: '0.6rem 1.3rem',
             fontSize: '0.83rem', fontWeight: 700,
@@ -553,7 +553,7 @@ export default function SettingsTrading() {
               onClick={save}
               disabled={!anyChanged || anyInvalid || busy || isDemo || !state?.config_present}
               style={{
-                background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+                background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
                 color: '#1a1a1a', border: 'none',
                 padding: '0.6rem 1.3rem',
                 fontSize: '0.83rem', fontWeight: 700,

@@ -278,7 +278,7 @@ export default function SettingsDanger() {
             </h2>
             <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.55 }}>
               The shared demo account can&apos;t be deleted or have its broker key disconnected.{' '}
-              <Link to="/signup" style={{ color: '#c8922a', fontWeight: 600 }}>Create your own account</Link>{' '}
+              <Link to="/signup" style={{ color: '#3B82F6', fontWeight: 600 }}>Create your own account</Link>{' '}
               to access the full settings surface.
             </p>
           </div>
@@ -300,7 +300,7 @@ export default function SettingsDanger() {
         lineHeight: 1.55,
       }}>
         These actions are <strong style={{ color: '#fca5a5' }}>permanent or near-permanent</strong>.{' '}
-        Need help instead? <Link to="/settings/account" style={{ color: '#c8922a', fontWeight: 600 }}>
+        Need help instead? <Link to="/settings/account" style={{ color: '#3B82F6', fontWeight: 600 }}>
           Account settings
         </Link>{' '}covers password + email changes.
       </div>
@@ -373,7 +373,7 @@ function FreezeAccount({ onChanged }) {
           )}
           <div style={{ marginTop: '0.6rem', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
             <strong>To unfreeze:</strong> email{' '}
-            <a href="mailto:support@foundationbots.com" style={{ color: '#c8922a' }}>
+            <a href="mailto:support@foundationbots.com" style={{ color: '#3B82F6' }}>
               support@foundationbots.com
             </a>{' '}— an operator will work through the unfreeze with you.
             This friction is intentional (panic-trade prevention).
@@ -392,7 +392,7 @@ function FreezeAccount({ onChanged }) {
         tone="danger"
       >
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
-          To unfreeze, email <a href="mailto:support@foundationbots.com" style={{ color: '#c8922a' }}>
+          To unfreeze, email <a href="mailto:support@foundationbots.com" style={{ color: '#3B82F6' }}>
             support@foundationbots.com
           </a>.
         </p>

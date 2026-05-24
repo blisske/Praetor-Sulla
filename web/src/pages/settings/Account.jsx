@@ -45,7 +45,7 @@ const labelStyle = {
 }
 
 const btnStyle = {
-  background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+  background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
   color: '#1a1a1a',
   border: 'none',
   fontSize: '0.83rem',
@@ -72,7 +72,7 @@ function MeBanner({ user }) {
       borderRadius: '0.5rem',
       marginBottom: '1rem',
     }}>
-      <Mail size={18} style={{ color: '#c8922a', flexShrink: 0 }} />
+      <Mail size={18} style={{ color: '#3B82F6', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: '0.92rem', color: 'var(--text-primary)', fontWeight: 600 }}>
           {user.email}
@@ -81,7 +81,7 @@ function MeBanner({ user }) {
           {user.email_verified
             ? <span style={{ color: '#22c55e' }}>✓ Verified</span>
             : <span style={{ color: '#f59e0b' }}>○ Unverified — check your inbox</span>}
-          {user.is_admin && <span style={{ marginLeft: '0.5rem', color: '#c8922a' }}>· Admin</span>}
+          {user.is_admin && <span style={{ marginLeft: '0.5rem', color: '#3B82F6' }}>· Admin</span>}
         </div>
       </div>
     </div>

@@ -174,7 +174,7 @@ export default function TwoFactorCard({ isDemo }) {
               onClick={() => setPhase('start_password')}
               disabled={isDemo}
               style={{
-                background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+                background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
                 color: '#1a1a1a', border: 'none',
                 padding: '0.6rem 1.3rem',
                 fontSize: '0.83rem', fontWeight: 700,
@@ -249,7 +249,7 @@ export default function TwoFactorCard({ isDemo }) {
 // ─── Modals ──────────────────────────────────────────────────────────────
 
 
-function modalShell(children, accentColor = '#c8922a') {
+function modalShell(children, accentColor = '#3B82F6') {
   return (
     <div style={{
       position: 'fixed', inset: 0,
@@ -326,7 +326,7 @@ function EnrollmentModal({ enroll, onCancel, onConfirm }) {
   return modalShell(
     <form onSubmit={submit}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
-        <Shield size={18} style={{ color: '#c8922a' }} />
+        <Shield size={18} style={{ color: '#3B82F6' }} />
         <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
           Set up two-factor authentication
         </h2>
@@ -469,7 +469,7 @@ function RecoveryCodesModal({ codes, onDismiss }) {
         marginBottom: '1rem', cursor: 'pointer',
       }}>
         <input type="checkbox" checked={acked} onChange={e => setAcked(e.target.checked)}
-               style={{ accentColor: '#c8922a' }} />
+               style={{ accentColor: '#3B82F6' }} />
         I've saved my recovery codes somewhere safe.
       </label>
 
@@ -478,7 +478,7 @@ function RecoveryCodesModal({ codes, onDismiss }) {
           onClick={onDismiss}
           disabled={!acked}
           style={{
-            background: 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+            background: 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
             color: '#1a1a1a', border: 'none',
             padding: '0.6rem 1.3rem',
             fontSize: '0.83rem', fontWeight: 700,
@@ -537,7 +537,7 @@ function PasswordAndCodeModal({ title, subtitle, confirmLabel, confirmTone, requ
       <ModalButtons busy={busy} onCancel={onCancel} confirmLabel={confirmLabel} confirmTone={confirmTone}
                     disabled={!pw || !codeValid || busy} />
     </form>,
-    confirmTone === 'danger' ? '#dc2626' : '#c8922a'
+    confirmTone === 'danger' ? '#dc2626' : '#3B82F6'
   )
 }
 
@@ -574,7 +574,7 @@ function ModalButtons({ busy, onCancel, confirmLabel, disabled, confirmTone }) {
       <button type="submit" disabled={disabled} style={{
         background: danger
           ? 'linear-gradient(180deg, #dc2626 0%, #991b1b 100%)'
-          : 'linear-gradient(180deg, #c8922a 0%, #a8761d 100%)',
+          : 'linear-gradient(180deg, #3B82F6 0%, #1D4ED8 100%)',
         color: danger ? '#fff' : '#1a1a1a',
         border: 'none', padding: '0.6rem 1.3rem',
         fontSize: '0.83rem', fontWeight: 700,

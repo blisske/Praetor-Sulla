@@ -1,7 +1,45 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-24 (tax-reporting MVP — FX §988 ordinary-income flavor)
+> Last updated: 2026-05-24 (+1) (UI re-theme: gold → blue)
+
+---
+
+## 2026-05-24 (+1) — UI re-theme: gold → blue
+
+**Closed the brand-correctness gap** flagged when the tax MVP landed
+earlier today. Ionic's canonical brand color per CLAUDE.md is blue
+(`#3B82F6`), but the entire UI was still themed gold (`#c8922a`) — a
+Corinthian SaaS-port leftover. Only the FoundationMark SVG logo had
+the right blue.
+
+**Sweep:**
+- `#c8922a` → `#3B82F6` (blue-500)
+- `#a8761d` → `#1D4ED8` (blue-700 — gradient bottom)
+- `#e8b84b` → `#60A5FA` (blue-400 — used in GOLD_LITE)
+- `rgba(200,146,42,*)` → `rgba(59,130,246,*)` (tint variants)
+- `GOLD` / `GOLD_LITE` constants renamed → `BLUE` / `BLUE_LITE` in
+  Layout.jsx, OnboardingBanners.jsx, reports/Tax.jsx
+
+**Files touched (21):** Layout, Settings, Trading, Tax, Account, Mode,
+Danger, TwoFactorCard, SettingsCard, TosReacceptModal, OnboardingBanners,
+DemoModeBanner, ForgotPassword, ResetPassword, Signup, VerifyEmail,
+DemoMode, LegalDoc, admin/Provisioner, admin/Users, admin/UserDetail.
+
+**Also fixed:** Tax.jsx's `fmtQty` comment was "Doric trades in whole
+shares — no need for crypto-style fractional precision" (copy-paste
+leftover from the Doric port). Now reads "FX units of base currency —
+typically 4 dp is plenty (e.g. 10000.00 EUR units)".
+
+**Verified:** `docker compose build ionic-web` succeeded clean,
+container recreated. Visit `http://192.168.0.135:8085/` (LAN) or
+`https://ionic.blisske.hopto.org/` (prod) to confirm sidebar active
+state, settings buttons, and tax page tabs render in blue.
+
+**Method:** single `sed -i -E` pass across all 21 files; zero residual
+matches confirmed via grep afterward. Constant renames done in a
+separate pass on the three files that defined them. No logic changes —
+purely cosmetic / brand-correctness.
 
 ---
 

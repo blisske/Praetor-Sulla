@@ -90,7 +90,7 @@ export default function ForgotPassword() {
             fontWeight: 600,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: 'rgba(200,146,42,0.85)',
+            color: 'rgba(59,130,246,0.85)',
             display: 'block',
             marginBottom: '0.35rem',
           }}>

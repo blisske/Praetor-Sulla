@@ -11,7 +11,7 @@
  *   children Body content.
  */
 export default function SettingsCard({ title, subtitle, tone = 'default', children }) {
-  const accent = tone === 'danger' ? '#dc2626' : '#c8922a'
+  const accent = tone === 'danger' ? '#dc2626' : '#3B82F6'
   return (
     <div style={{
       background: 'var(--bg-surface)',
@@ -26,7 +26,7 @@ export default function SettingsCard({ title, subtitle, tone = 'default', childr
         fontWeight: 700,
         letterSpacing: '0.12em',
         textTransform: 'uppercase',
-        color: tone === 'danger' ? '#fca5a5' : '#c8922a',
+        color: tone === 'danger' ? '#fca5a5' : '#3B82F6',
         margin: 0,
         marginBottom: subtitle ? '0.3rem' : '1rem',
       }}>

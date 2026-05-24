@@ -110,7 +110,7 @@ export default function Signup() {
             fontWeight: 600,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: 'rgba(200,146,42,0.85)',
+            color: 'rgba(59,130,246,0.85)',
             display: 'block',
             marginBottom: '0.35rem',
           }}>
@@ -133,7 +133,7 @@ export default function Signup() {
             fontWeight: 600,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: 'rgba(200,146,42,0.85)',
+            color: 'rgba(59,130,246,0.85)',
             display: 'block',
             marginBottom: '0.35rem',
           }}>
@@ -179,14 +179,14 @@ export default function Signup() {
             type="checkbox"
             checked={form.accepted_terms}
             onChange={e => setForm(f => ({ ...f, accepted_terms: e.target.checked }))}
-            style={{ marginTop: 3, accentColor: '#c8922a' }}
+            style={{ marginTop: 3, accentColor: '#3B82F6' }}
           />
           <span>
             I have read and agree to the{' '}
-            <Link to="/terms" target="_blank" style={{ color: '#c8922a', fontWeight: 600 }}>
+            <Link to="/terms" target="_blank" style={{ color: '#3B82F6', fontWeight: 600 }}>
               Terms of Service
             </Link>{' '}and{' '}
-            <Link to="/privacy" target="_blank" style={{ color: '#c8922a', fontWeight: 600 }}>
+            <Link to="/privacy" target="_blank" style={{ color: '#3B82F6', fontWeight: 600 }}>
               Privacy Policy
             </Link>. I understand Foundation is personal trading software and not
             financial advice. Trading involves risk of loss.
@@ -206,7 +206,7 @@ export default function Signup() {
             type="checkbox"
             checked={form.accepted_risk_acknowledgment}
             onChange={e => setForm(f => ({ ...f, accepted_risk_acknowledgment: e.target.checked }))}
-            style={{ marginTop: 3, accentColor: '#c8922a' }}
+            style={{ marginTop: 3, accentColor: '#3B82F6' }}
           />
           <span>
             I understand Foundation is <strong>experimental software</strong> run by a

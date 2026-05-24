@@ -60,7 +60,7 @@ export default function Settings() {
               flex items-center gap-2 px-4 py-2.5 text-sm font-medium
               border-b-2 -mb-px transition-colors whitespace-nowrap
               ${isActive
-                ? 'border-[#c8922a] text-[#c8922a]'
+                ? 'border-[#3B82F6] text-[#3B82F6]'
                 : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'}
             `}
           >

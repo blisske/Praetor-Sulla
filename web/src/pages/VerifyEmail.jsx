@@ -62,8 +62,8 @@ export default function VerifyEmail() {
           <div style={{
             width: 28,
             height: 28,
-            border: '3px solid rgba(200,146,42,0.18)',
-            borderTopColor: '#c8922a',
+            border: '3px solid rgba(59,130,246,0.18)',
+            borderTopColor: '#3B82F6',
             borderRadius: '50%',
             animation: 'spin 0.9s linear infinite',
           }} />

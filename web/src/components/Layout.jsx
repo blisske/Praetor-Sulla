@@ -7,8 +7,8 @@ import DemoModeBanner from './DemoModeBanner.jsx'
 import TosReacceptModal from './TosReacceptModal.jsx'
 import ProvisionGate from './ProvisionGate.jsx'
 
-const GOLD      = '#c8922a'
-const GOLD_LITE = '#e8b84b'
+const BLUE      = '#3B82F6'
+const BLUE_LITE = '#60A5FA'
 const ORANGE    = '#F7931A'
 
 // Ionic column capital — abacus + echinus + necking + fluted shaft.
@@ -162,11 +162,11 @@ function Sidebar({ onClose, dark, toggle }) {
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px',
                     borderRadius: 8,
-                    background: 'rgba(200,146,42,0.15)',
-                    color: GOLD,
+                    background: 'rgba(59,130,246,0.15)',
+                    color: BLUE,
                     fontWeight: 600,
                     fontSize: 14,
-                    borderLeft: `3px solid ${GOLD}`,
+                    borderLeft: `3px solid ${BLUE}`,
                     paddingLeft: 9,
                   } : {
                     display: 'flex', alignItems: 'center', gap: 12,
@@ -205,11 +205,11 @@ function Sidebar({ onClose, dark, toggle }) {
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px',
                     borderRadius: 8,
-                    background: 'rgba(200,146,42,0.15)',
-                    color: GOLD,
+                    background: 'rgba(59,130,246,0.15)',
+                    color: BLUE,
                     fontWeight: 600,
                     fontSize: 14,
-                    borderLeft: `3px solid ${GOLD}`,
+                    borderLeft: `3px solid ${BLUE}`,
                     paddingLeft: 9,
                   } : {
                     display: 'flex', alignItems: 'center', gap: 12,
