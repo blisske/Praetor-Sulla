@@ -39,15 +39,33 @@ def get_client() -> OandaClient | None:
     Returns a cached OandaClient instance, or None if credentials aren't set.
     Errors are logged once and cached so the engine doesn't spam log lines
     every cycle when running pre-credentials.
+
+    Credential source selection:
+      - If USER_ID env var is set (per-user engine container, set by the
+        provisioner), load credentials from the user's encrypted broker_keys
+        row in global.db via OandaClient.from_user(user_id).
+      - Otherwise fall back to env vars (operator engine, dev mode) via
+        OandaClient.from_env().
     """
     global _client, _client_err
     if _client is not None:
         return _client
     if _client_err is not None:
         return None  # Already failed to construct; don't keep retrying.
+
+    import os
+    user_id_raw = os.environ.get("USER_ID")
     try:
-        _client = OandaClient.from_env()
-        logger.info(f"Oanda client ready: {_client!r}")
+        if user_id_raw:
+            try:
+                user_id = int(user_id_raw)
+            except ValueError:
+                raise OandaError(f"USER_ID env var is not an integer: {user_id_raw!r}")
+            _client = OandaClient.from_user(user_id)
+            logger.info(f"Oanda client ready (per-user, user_id={user_id}): {_client!r}")
+        else:
+            _client = OandaClient.from_env()
+            logger.info(f"Oanda client ready (operator/env): {_client!r}")
         return _client
     except OandaMissingCredentials as e:
         _client_err = str(e)

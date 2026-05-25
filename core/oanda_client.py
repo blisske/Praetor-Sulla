@@ -6,13 +6,15 @@ through, and we only need a handful of endpoints. Uses `requests` directly with
 explicit error handling.
 
 Endpoints implemented:
-  - GET /v3/accounts/{account_id}                — account info + balance
-  - GET /v3/instruments/{instrument}/candles     — OHLCV bars
-  - GET /v3/accounts/{account_id}/pricing        — current bid/ask for symbols
-
-Phase 3 adds:
-  - POST /v3/accounts/{account_id}/orders        — place a market order
-  - PUT  /v3/accounts/{account_id}/positions/... — close a position
+  - GET  /v3/accounts/{account_id}                            — account info + balance
+  - GET  /v3/accounts/{account_id}/positions                  — list open positions
+  - GET  /v3/accounts/{account_id}/openTrades                 — list open trades
+  - GET  /v3/accounts/{account_id}/trades/{trade_id}          — trade detail (for fee capture)
+  - GET  /v3/instruments/{instrument}/candles                 — OHLCV bars
+  - GET  /v3/accounts/{account_id}/pricing                    — current bid/ask
+  - POST /v3/accounts/{account_id}/orders                     — place market order (with attached stop)
+  - PUT  /v3/accounts/{account_id}/trades/{trade_id}/orders   — modify stop/take-profit on existing trade
+  - PUT  /v3/accounts/{account_id}/positions/{inst}/close     — flat a position (market close)
 
 References:
   https://developer.oanda.com/rest-live-v20/instrument-ep/
@@ -120,8 +122,7 @@ class OandaClient:
         """
         Build a client from env vars. Raises OandaMissingCredentials if
         OANDA_API_TOKEN or OANDA_ACCOUNT_ID is missing — caller decides whether
-        to crash or degrade gracefully (engine idles in Phase 2 when creds
-        aren't set yet).
+        to crash or degrade gracefully (engine idles when creds aren't set yet).
         """
         return cls(
             token=os.environ.get("OANDA_API_TOKEN", ""),
@@ -130,13 +131,95 @@ class OandaClient:
             timeout=timeout,
         )
 
-    # ── Internal helper ─────────────────────────────────────────────────────
-    def _get(self, path: str, params: Optional[dict] = None) -> dict:
+    @classmethod
+    def from_user(cls, user_id: int, timeout: float = 15.0) -> "OandaClient":
+        """Build a per-user client by decrypting the user's broker_keys row
+        from global.db.
+
+        Schema convention (mirrors api/byok.py):
+            key_enc      → AES-256-GCM-encrypted Oanda API token
+            secret_enc   → AES-256-GCM-encrypted Oanda account_id
+            last_error   → environment marker ('env=practice' or 'env=live')
+
+        Raises OandaMissingCredentials if no broker_keys row exists for this
+        user — caller (typically market_data.get_client) handles that as
+        "user hasn't connected Oanda yet; engine idles."
+        """
+        import sqlite3
+        from broker_crypto import decrypt_credential, BrokerCryptoError
+
+        db_path = os.environ.get("GLOBAL_DB_PATH", "/app/foundation/global.db")
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        except sqlite3.OperationalError as e:
+            raise OandaMissingCredentials(
+                f"Couldn't open global.db at {db_path}: {e}"
+            ) from e
+        try:
+            row = conn.execute(
+                "SELECT key_enc, secret_enc, last_error "
+                "FROM broker_keys WHERE user_id = ? AND broker = 'oanda'",
+                (user_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            raise OandaMissingCredentials(
+                f"No Oanda credentials found for user_id={user_id} "
+                f"(user hasn't connected at /settings/broker yet)."
+            )
+
+        key_enc, secret_enc, last_error = row
+        if not key_enc or not secret_enc:
+            raise OandaMissingCredentials(
+                f"broker_keys row for user_id={user_id} is missing key_enc or "
+                f"secret_enc — likely a corrupted row, ask user to reconnect."
+            )
+
+        try:
+            token      = decrypt_credential(key_enc)
+            account_id = decrypt_credential(secret_enc)
+        except BrokerCryptoError as e:
+            raise OandaMissingCredentials(
+                f"Could not decrypt Oanda creds for user_id={user_id}: {e}. "
+                f"Likely BROKER_KEY_MASTER mismatch — ask the operator."
+            ) from e
+
+        # Environment marker convention: 'env=practice' / 'env=live'.
+        # Default to practice for safety if missing/malformed.
+        environment = "practice"
+        if last_error == "env=live":
+            environment = "live"
+        elif last_error == "env=practice":
+            environment = "practice"
+
+        return cls(
+            token=token,
+            account_id=account_id,
+            environment=environment,
+            timeout=timeout,
+        )
+
+    # ── Internal helpers ────────────────────────────────────────────────────
+    def _request(self, method: str, path: str,
+                 params: Optional[dict] = None,
+                 json_body: Optional[dict] = None) -> dict:
+        """Single chokepoint for every Oanda REST call. Uniform error mapping.
+
+        method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+        json_body: serialized to JSON if provided (POST/PUT)
+        """
         url = f"{self.base_url}{path}"
         try:
-            resp = self._session.get(url, params=params, timeout=self.timeout)
+            resp = self._session.request(
+                method, url,
+                params=params,
+                json=json_body,
+                timeout=self.timeout,
+            )
         except requests.RequestException as e:
-            raise OandaError(f"Network error on GET {path}: {e}") from e
+            raise OandaError(f"Network error on {method} {path}: {e}") from e
 
         if resp.status_code == 401:
             raise OandaError(
@@ -151,13 +234,26 @@ class OandaClient:
             )
         if not resp.ok:
             raise OandaError(
-                f"Oanda {resp.status_code} on {path}: {resp.text[:300]}"
+                f"Oanda {resp.status_code} on {method} {path}: {resp.text[:300]}"
             )
+
+        # Some Oanda endpoints (e.g. successful close) return empty body
+        if not resp.content:
+            return {}
 
         try:
             return resp.json()
         except ValueError as e:
             raise OandaError(f"Oanda returned non-JSON on {path}: {e}") from e
+
+    def _get(self, path: str, params: Optional[dict] = None) -> dict:
+        return self._request("GET", path, params=params)
+
+    def _post(self, path: str, json_body: dict) -> dict:
+        return self._request("POST", path, json_body=json_body)
+
+    def _put(self, path: str, json_body: Optional[dict] = None) -> dict:
+        return self._request("PUT", path, json_body=json_body or {})
 
     # ── Public methods ──────────────────────────────────────────────────────
     def get_account(self) -> dict:
@@ -249,8 +345,207 @@ class OandaClient:
             }
         return out
 
+    # ── Position + trade reads ──────────────────────────────────────────────
+    def get_open_positions(self) -> list[dict]:
+        """List all open positions (per-instrument net). Returns Oanda's raw
+        position dicts; caller does field extraction.
+
+        Each position has long/short sub-objects with `units`, `averagePrice`,
+        `unrealizedPL`, and the position-level `instrument` + `pl` (realized).
+        """
+        payload = self._get(f"/v3/accounts/{self.account_id}/openPositions")
+        return payload.get("positions", [])
+
+    def get_open_trades(self) -> list[dict]:
+        """List all open trades (per-fill, not per-instrument). Used when we
+        need trade IDs for modifying stops on individual fills."""
+        payload = self._get(f"/v3/accounts/{self.account_id}/openTrades")
+        return payload.get("trades", [])
+
+    def get_trade(self, trade_id: str) -> dict:
+        """Get a single trade by Oanda trade ID. Used to confirm fill +
+        extract fee/spread data after order submission."""
+        payload = self._get(f"/v3/accounts/{self.account_id}/trades/{trade_id}")
+        return payload.get("trade", {})
+
+    # ── Order placement ─────────────────────────────────────────────────────
+    def place_market_order(
+        self,
+        symbol: str,
+        units: int,
+        stop_loss_price: Optional[float] = None,
+        take_profit_price: Optional[float] = None,
+        client_order_id: Optional[str] = None,
+    ) -> dict:
+        """Submit a MARKET order with optional attached stop + take-profit.
+
+        Oanda's order shape is signed-units: positive = long, negative = short.
+        Stop/TP attached to the parent order fire atomically with the fill —
+        no separate "place then attach" race (Kraken's pain point).
+
+        Args:
+            symbol:            "EUR/USD" or "EUR_USD"
+            units:             signed int. Positive = buy (long), negative = sell (short).
+            stop_loss_price:   if set, attaches a stopLossOnFill at this price.
+            take_profit_price: if set, attaches a takeProfitOnFill at this price.
+            client_order_id:   idempotency key — Oanda surfaces it as clientExtensions.id
+
+        Returns the parsed response. Key fields:
+            orderCreateTransaction       — the order we submitted
+            orderFillTransaction         — the fill if it filled immediately
+                                            (typically present for MARKET orders)
+            orderCancelTransaction       — if it didn't fill (rare for market)
+            relatedTransactionIDs        — list of all txn IDs from this submit
+
+        Raises OandaError on any HTTP failure.
+        """
+        instrument = _to_oanda_instrument(symbol)
+        order: dict = {
+            "instrument":  instrument,
+            "units":       str(int(units)),
+            "type":        "MARKET",
+            "timeInForce": "FOK",   # Fill Or Kill — atomic. No partial.
+            "positionFill": "DEFAULT",
+        }
+        if stop_loss_price is not None:
+            order["stopLossOnFill"] = {
+                "price":       _format_price(stop_loss_price),
+                "timeInForce": "GTC",
+            }
+        if take_profit_price is not None:
+            order["takeProfitOnFill"] = {
+                "price":       _format_price(take_profit_price),
+                "timeInForce": "GTC",
+            }
+        if client_order_id:
+            order["clientExtensions"] = {"id": client_order_id}
+        body = {"order": order}
+        return self._post(f"/v3/accounts/{self.account_id}/orders", body)
+
+    def close_position(self, symbol: str, side: str = "long") -> dict:
+        """Flat a position at market.
+
+        Args:
+            symbol: "EUR/USD" or "EUR_USD"
+            side:   "long" or "short" — which side of the net position to close.
+                    Most Ionic positions are long (we don't short FX in this
+                    strategy); the `side` arg is here for forward-compat.
+
+        Returns the close transaction. Key fields under longOrderFillTransaction
+        (or shortOrderFillTransaction): `pl` (realized P&L), `commission`,
+        `financing`, `price` (fill price), `units` (signed close size).
+        """
+        instrument = _to_oanda_instrument(symbol)
+        body = {"longUnits": "ALL"} if side == "long" else {"shortUnits": "ALL"}
+        return self._put(
+            f"/v3/accounts/{self.account_id}/positions/{instrument}/close",
+            json_body=body,
+        )
+
+    def modify_trade_stop(
+        self,
+        trade_id: str,
+        new_stop_price: float,
+    ) -> dict:
+        """Move the stop-loss on an existing trade. Used for the ratchet."""
+        body = {
+            "stopLoss": {
+                "price":       _format_price(new_stop_price),
+                "timeInForce": "GTC",
+            }
+        }
+        return self._put(
+            f"/v3/accounts/{self.account_id}/trades/{trade_id}/orders",
+            json_body=body,
+        )
+
     def __repr__(self) -> str:
         return (
             f"OandaClient(account={self.account_id!r}, "
             f"environment={self.environment!r}, base_url={self.base_url!r})"
         )
+
+
+# ── Module-level helpers (used by execution.py for tax fee_usd) ───────────────
+def _format_price(price: float) -> str:
+    """Oanda rejects floats with more than ~5 decimal places on most pairs.
+    JPY pairs allow 3. We format conservatively to 5 dp — Oanda handles
+    rounding to the instrument's pricePrecision server-side."""
+    return f"{float(price):.5f}"
+
+
+def extract_fill_fee_usd(order_response: dict) -> float:
+    """Extract total USD-equivalent fee from a place_market_order() response.
+
+    Oanda's fill transaction carries:
+      - commission:    explicit commission in account currency (usually 0 on
+                       standard accounts — Oanda's cost is in the spread)
+      - financing:     overnight rollover charges (rare on fresh entries)
+
+    We sum both — they're in account currency, which for US users is USD.
+    Returns 0.0 on any extraction failure (defensive — fee accuracy must
+    not break the ledger write).
+    """
+    if not isinstance(order_response, dict):
+        return 0.0
+    fill = order_response.get("orderFillTransaction") or {}
+    if not isinstance(fill, dict):
+        return 0.0
+    total = 0.0
+    for key in ("commission", "financing", "halfSpreadCost"):
+        try:
+            total += abs(float(fill.get(key, 0) or 0))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def extract_fill_price(order_response: dict, fallback: float = 0.0) -> float:
+    """Extract average fill price from a place_market_order() response.
+
+    For MARKET orders, Oanda reports the actual fill price in
+    orderFillTransaction.price (the limit price you would have submitted,
+    but for market it's the actual fill).
+    """
+    if not isinstance(order_response, dict):
+        return fallback
+    fill = order_response.get("orderFillTransaction") or {}
+    try:
+        return float(fill.get("price", fallback))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def extract_close_fee_usd(close_response: dict, side: str = "long") -> float:
+    """Extract fee from a close_position() response.
+
+    Close response shape is either longOrderFillTransaction or
+    shortOrderFillTransaction (depending on side). Same fields as a fill:
+    commission, financing, halfSpreadCost.
+    """
+    if not isinstance(close_response, dict):
+        return 0.0
+    key = "longOrderFillTransaction" if side == "long" else "shortOrderFillTransaction"
+    fill = close_response.get(key) or {}
+    if not isinstance(fill, dict):
+        return 0.0
+    total = 0.0
+    for k in ("commission", "financing", "halfSpreadCost"):
+        try:
+            total += abs(float(fill.get(k, 0) or 0))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def extract_close_pl_usd(close_response: dict, side: str = "long") -> float:
+    """Extract realized P&L from a close_position() response. Positive
+    = profitable close, negative = loss. In account currency (USD for US)."""
+    if not isinstance(close_response, dict):
+        return 0.0
+    key = "longOrderFillTransaction" if side == "long" else "shortOrderFillTransaction"
+    fill = close_response.get(key) or {}
+    try:
+        return float(fill.get("pl", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0

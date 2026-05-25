@@ -1,7 +1,105 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-24 (+1) (UI re-theme: gold → blue)
+> Last updated: 2026-05-24 (+2) (Phase 2 infrastructure complete — Oanda broker adapter)
+
+---
+
+## 2026-05-24 (+2) — Phase 2: Oanda broker adapter (infrastructure complete)
+
+**Phase 2 per CLAUDE.md ladder: "Oanda broker adapter. Real OHLCV bars +
+token auth."** Most of it was already scaffolded in earlier sessions
+(oanda_client.py existed with candles + account + pricing). What this
+commit lands is the **order placement, position management, per-user
+credential dispatch, and tests** that take Phase 2 from "candles work"
+to "could trade if main.py is wired."
+
+**oanda_client.py additions (+265 lines):**
+- `_request()` chokepoint for all REST calls (GET/POST/PUT) with uniform
+  error mapping. `_get` / `_post` / `_put` thin wrappers atop it.
+- `get_open_positions()` — list per-instrument net positions
+- `get_open_trades()` — list per-fill open trades (needed for ratchet
+  to find the trade ID to modify)
+- `get_trade(trade_id)` — single trade detail
+- `place_market_order(symbol, units, stop_loss_price, take_profit_price,
+  client_order_id)` — MARKET FOK with attached stopLossOnFill /
+  takeProfitOnFill. Signed-units convention (positive = long).
+- `close_position(symbol, side)` — flat at market via /positions/.../close
+- `modify_trade_stop(trade_id, new_stop_price)` — direct stop update
+  (Oanda's nice v20 feature — no cancel-and-replace dance)
+- `from_user(user_id)` — classmethod that loads encrypted broker_keys
+  blob from global.db, decrypts via broker_crypto, constructs with the
+  right environment. Reads `last_error` column for env marker
+  ('env=practice' / 'env=live') per api/byok.py convention.
+- Module-level fee/price extraction helpers:
+  - `extract_fill_fee_usd()` — sums commission + financing +
+    halfSpreadCost from orderFillTransaction (Oanda's standard accounts
+    have $0 commission; the cost IS the spread, captured here).
+  - `extract_fill_price()`
+  - `extract_close_fee_usd()`
+  - `extract_close_pl_usd()` — realized P&L on close
+
+**execution.py: stubs replaced with real Oanda calls (+150 lines):**
+- `execute_buy_with_stop(symbol, units, stop_price)` →
+  `(success, fill_price, fee_usd)`. Submits MARKET FOK with attached
+  stop. Generates `ionic_buy_*` idempotency keys.
+- `execute_take_profit(symbol)` → `(success, pl_usd, fee_usd)`. Closes
+  long position at market.
+- `execute_ratchet_stop(symbol, new_stop_price)` → `bool`. Finds the
+  matching open trade by instrument + modifies its stop directly.
+- All three sync (called via `asyncio.to_thread` from main.py per the
+  Doric/Corinthian pattern).
+- All defensive: any OandaError returns the failure tuple cleanly
+  instead of crashing the cycle.
+
+**market_data.get_client() dispatches on USER_ID:**
+- If `USER_ID` env var is set (per-user engine container — set by
+  provisioner_daemon), call `OandaClient.from_user(user_id)` to
+  load that user's encrypted credentials.
+- Otherwise fall back to `OandaClient.from_env()` (operator engine, dev
+  mode).
+- Cached result + error result both memoized so cycles don't spam logs.
+
+**Tests:** `tests/test_oanda_client.py` — 38 unit tests, all passing
+(`docker exec -w /app ionic-api python3 -m unittest tests.test_oanda_client`).
+Covers symbol/granularity mapping, environment routing, construction
+validation, fee/price extraction (USD/garbage/None/string-coerce/
+negative-value defensive cases), order request body shape (signed units,
+attached stop format, client_order_id), close-position body shape,
+modify-trade-stop body shape. Existing tax suite still 32/32.
+
+**Smoke-verified:** ionic-engine rebuilt + recreated, boots clean,
+pulls real OHLCV from Oanda for all 7 majors (EUR/USD, GBP/USD, AUD/USD,
+NZD/USD, USD/JPY, USD/CHF, USD/CAD). ADX/RSI computing on real candles.
+MTF daily filter, macro calendar, consensus logic all running on
+real-market data. Operator's env credentials work end-to-end.
+
+**⚠️ Deferred — Phase 2.5 / next session:** main.py autonomous-loop
+live-path wiring. Currently main.py is hard-shadow — the autonomous-buy
+block at L612-664 always writes `SHADOW BUY` to database.log_trade and
+never calls execute_buy_with_stop. 4-5 call sites need a
+`if shadow_mode: ... else: execute_buy_with_stop(...)` branch:
+  - L632  autonomous BUY
+  - L502  pyramid BUY ADD
+  - L290 / L361 / L1229  exits (need careful reasoning re: Oanda's
+                                 server-side attached stop vs engine-side
+                                 exit logic — risk of double-close)
+  - L1093 manual /buy Telegram cmd
+Architectural decision needed: do we let Oanda's attached stop fire
+server-side AND keep the engine-side exit running, or trust one or the
+other? Different trade-offs. This is the actual work item; client +
+execution layers are done.
+
+**What's in this commit:**
+- ✅ Full Oanda v20 client (orders, positions, stops, fee helpers)
+- ✅ Real execution.py implementations  
+- ✅ Per-user credential dispatch (USER_ID-aware)
+- ✅ 38 unit tests passing
+- ✅ Smoke-verified live Oanda candle fetching
+
+**What's NOT in this commit (Phase 2.5):**
+- main.py autonomous-loop shadow-vs-live branching
+- Architecture decision on attached-stop vs engine-side-exit
 
 ---
 
