@@ -11,17 +11,9 @@ const NAVY      = '#0b1526'
 // Ionic is the "scholar's" order — graceful, balanced, intermediate
 // between Doric's plainness and Corinthian's ornament. Matches FX:
 // macro-driven, deliberate, less volatile than crypto.
-// Ionic column capital — rendering strategy chosen for readability at
-// 22-44px:
-//   - Wide abacus + wide echinus = a clear "capital cap" silhouette.
-//   - Volutes drawn as bold concentric circles flush against the cap
-//     edges — at small sizes they read as ammonite scrolls.
-//   - Column shaft narrower than the capital, with clear flutes.
-// The earlier attempt used <path> spirals that collapsed visually below
-// ~60px; this version uses plain filled shapes that render crisply.
 function FoundationMark({ size = 28 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ flexShrink: 0 }} xmlns="http://www.w3.org/2000/svg">
+    <svg width={size} height={size} viewBox="0 0 54 54" fill="none" style={{ flexShrink: 0 }}>
       <defs>
         <linearGradient id="ionicGradLogin" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%"   stopColor="#93C5FD" />
@@ -29,37 +21,22 @@ function FoundationMark({ size = 28 }) {
           <stop offset="100%" stopColor="#1D4ED8" />
         </linearGradient>
       </defs>
-
-      {/* Abacus — flat slab on top, full width */}
-      <rect x="2" y="4" width="60" height="5" fill="url(#ionicGradLogin)" />
-
-      {/* Echinus + volute body — wide horizontal band where the volutes sit */}
-      <rect x="4" y="9" width="56" height="14" fill="url(#ionicGradLogin)" opacity="0.95" />
-
-      {/* Left volute — bold concentric circles ON the cap, flush to the
-          left edge. Reads as a scroll at small sizes. */}
-      <circle cx="13" cy="16" r="8" fill="url(#ionicGradLogin)" />
-      <circle cx="13" cy="16" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
-      <circle cx="13" cy="16" r="2" fill="#1D4ED8" />
-
-      {/* Right volute — mirror */}
-      <circle cx="51" cy="16" r="8" fill="url(#ionicGradLogin)" />
-      <circle cx="51" cy="16" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
-      <circle cx="51" cy="16" r="2" fill="#1D4ED8" />
-
-      {/* Necking — thin dark band separating capital from shaft */}
-      <rect x="18" y="24" width="28" height="2.5" fill="#1D4ED8" />
-
-      {/* Column shaft — narrower than the capital, fluted */}
-      <rect x="20" y="26.5" width="24" height="34" fill="url(#ionicGradLogin)" />
-      <line x1="24" y1="26.5" x2="24" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
-      <line x1="28" y1="26.5" x2="28" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
-      <line x1="32" y1="26.5" x2="32" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
-      <line x1="36" y1="26.5" x2="36" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
-      <line x1="40" y1="26.5" x2="40" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
-
-      {/* Base flare at bottom (optional polish) */}
-      <rect x="18" y="60.5" width="28" height="2.5" fill="url(#ionicGradLogin)" />
+      <rect x="2"  y="3"  width="50" height="3"  fill="url(#ionicGradLogin)" />
+      <rect x="10" y="6"  width="34" height="12" fill="url(#ionicGradLogin)" />
+      <circle cx="10" cy="12" r="9" fill="url(#ionicGradLogin)" />
+      <circle cx="10" cy="12" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="10" cy="12" r="2" fill="url(#ionicGradLogin)" />
+      <circle cx="44" cy="12" r="9" fill="url(#ionicGradLogin)" />
+      <circle cx="44" cy="12" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="44" cy="12" r="2" fill="url(#ionicGradLogin)" />
+      <rect x="13" y="20" width="28" height="2.5" fill="#1D4ED8" opacity="0.65" />
+      <rect x="19" y="24" width="16" height="3"  fill="#1D4ED8" />
+      <rect x="17" y="27" width="20" height="23" fill="url(#ionicGradLogin)" />
+      <line x1="20" y1="27" x2="20" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="24" y1="27" x2="24" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="27" y1="27" x2="27" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="30" y1="27" x2="30" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
+      <line x1="34" y1="27" x2="34" y2="50" stroke="#1D4ED8" strokeWidth="1" opacity="0.55" />
     </svg>
   )
 }
