@@ -27,8 +27,6 @@ The shadow contract is non-negotiable: shadow paths NEVER call Oanda's
 order endpoints. Same code, different destination — flipping
 shadow_mode → false is the only flag that flips the behavior.
 
-Reference: Doric's Alpaca-bound version preserved at
-`_main_anton_reference.py` for porting comparison.
 """
 
 import logging

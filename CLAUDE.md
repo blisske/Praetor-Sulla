@@ -64,8 +64,7 @@ chop. Same growth-disciplined posture as Doric and Corinthian.
 ~/swarm/ionic/                  # On the host (battlemage)
 ├── repo/                       # git clone of blisske/Foundation-Ionic
 │   ├── core/                   # Trading engine source
-│   │   ├── main.py             # Phase 1 placeholder (heartbeat + idle loop)
-│   │   ├── _main_anton_reference.py  # Doric's main.py preserved as Phase 2 porting reference
+│   │   ├── main.py             # Autonomous loop + Telegram bot
 │   │   ├── market_data.py, strategy.py, execution.py, ai_brain.py, etc.
 │   │   ├── config_manager.py
 │   │   ├── database.py
