@@ -795,24 +795,45 @@ async def get_watchlist(user: str = Depends(get_current_user)):
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):
-        # Each entry is (ws, user) so broadcasts can be scoped by role.
-        # pending_events lives only in the real DB; demo sockets must not
-        # see real-trade fills bleeding through manager.broadcast().
-        self.active: list[tuple[WebSocket, str]] = []
+        # Each entry is (ws, user_id, legacy_username). Scoping by
+        # legacy_username alone was NOT enough — every non-demo user gets
+        # legacy_username="admin", so a broadcast(only_user=API_USERNAME)
+        # reached every signed-up user's socket and leaked the operator's
+        # pending_events. Now we also track user_id so per-tenant scoping
+        # is possible via only_user_id=. Bug caught 2026-05-25 by the
+        # bug-hunt WS isolation harness.
+        self.active: list[tuple[WebSocket, int, str]] = []
 
-    async def connect(self, ws: WebSocket, user: str):
+    async def connect(self, ws: WebSocket, user_id: int, user: str):
         await ws.accept()
-        self.active.append((ws, user))
+        self.active.append((ws, user_id, user))
 
     def disconnect(self, ws: WebSocket):
-        self.active = [(w, u) for (w, u) in self.active if w is not ws]
+        self.active = [(w, uid, u) for (w, uid, u) in self.active if w is not ws]
 
-    async def broadcast(self, data: dict, *, only_user: Optional[str] = None):
-        """Send `data` to all connected sockets, or just those for `only_user`."""
+    async def broadcast(
+        self,
+        data: dict,
+        *,
+        only_user: Optional[str] = None,
+        only_user_id: Optional[int] = None,
+    ):
+        """Send `data` to all connected sockets, or just to the ones that
+        match the optional filters.
+
+        - only_user:    legacy username string ("admin" | "demo"). Coarse;
+                        matches every non-demo user when set to "admin".
+                        Kept for backward compat with old call sites.
+        - only_user_id: per-user_id scoping. Use this for operator-only
+                        broadcasts (only_user_id=1) so pending_events from
+                        REAL_DB don't leak to every tenant.
+        """
         msg = json.dumps(data)
         dead: list[WebSocket] = []
-        for ws, user in list(self.active):
+        for ws, user_id, user in list(self.active):
             if only_user is not None and user != only_user:
+                continue
+            if only_user_id is not None and user_id != only_user_id:
                 continue
             try:
                 await ws.send_text(msg)
@@ -858,8 +879,10 @@ async def _drain_pending_events():
                     **payload,
                 }
                 # pending_events lives in REAL_DB only — scope the broadcast
-                # to admin sockets so demo dashboards keep showing demo data.
-                await manager.broadcast(msg, only_user=API_USERNAME)
+                # to the OPERATOR'S user_id specifically. The legacy
+                # only_user="admin" filter let every non-demo tenant
+                # eavesdrop on operator fills (bug caught 2026-05-25).
+                await manager.broadcast(msg, only_user_id=1)
                 conn.execute(
                     "UPDATE pending_events SET broadcast_at = ? WHERE id = ?",
                     (datetime.now(timezone.utc).isoformat(), r["id"]),
@@ -909,7 +932,10 @@ async def websocket_endpoint(ws: WebSocket, token: str = ""):
     )
     user = ws_ctx.legacy_username
 
-    await manager.connect(ws, user)
+    # Tag the socket with BOTH user_id and legacy username so broadcasts
+    # can scope by either. user_id matters for tenant-isolated drains
+    # like _drain_pending_events (operator-only).
+    await manager.connect(ws, ws_ctx.user_id, user)
     try:
         while True:
             conn = get_db_for(ws_ctx)
