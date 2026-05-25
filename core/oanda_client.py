@@ -146,7 +146,19 @@ class OandaClient:
         "user hasn't connected Oanda yet; engine idles."
         """
         import sqlite3
-        from broker_crypto import decrypt_credential, BrokerCryptoError
+        # broker_crypto lives at /app/shared/broker_crypto.py via the
+        # bind-mount the engine container's compose declares. The bare
+        # `from broker_crypto import ...` line that used to be here
+        # never worked — the shared lib isn't a sibling. Crashed every
+        # per-tenant engine on boot until 2026-05-25 (bug-hunt task #149).
+        # Canonical ionic-engine survived because operator never reaches
+        # this from_user code path.
+        try:
+            from shared.broker_crypto import decrypt_credential, BrokerCryptoError
+        except ImportError:
+            # Sibling fallback for any dev environment where the shared
+            # lib happens to live alongside core/.
+            from broker_crypto import decrypt_credential, BrokerCryptoError  # type: ignore[no-redef]
 
         db_path = os.environ.get("GLOBAL_DB_PATH", "/app/foundation/global.db")
         try:
