@@ -1,4 +1,4 @@
-import { BookOpen, Compass, Layers, Filter, Shield, FlaskConical, LayoutDashboard, MessageSquare, ListChecks, Library, CalendarClock, Globe2 } from 'lucide-react'
+import { BookOpen, Compass, Layers, Filter, Shield, FlaskConical, LayoutDashboard, MessageSquare, ListChecks, Library, CalendarClock, Globe2, UserPlus, KeyRound, ToggleLeft, FileText, Snowflake } from 'lucide-react'
 
 const BLUE   = '#3B82F6'   // Ionic brand accent (sections, primary, Trend Following)
 const GREEN  = '#34d399'   // semantic — Mean Reversion paradigm
@@ -374,6 +374,18 @@ const Section5 = () => (
       trigger a false halt. Peak equity is persisted to the database so the
       calculation survives restarts.
     </p>
+
+    <div className="rounded-lg p-3 my-3" style={{ background: BLUE + '11', border: `1px solid ${BLUE}44` }}>
+      <div className="text-xs uppercase tracking-wider mb-1" style={{ color: BLUE }}>You can tighten these</div>
+      <p className="text-xs" style={{ color: 'var(--text-sub)' }}>
+        The numbers above are the <em>operator ceilings</em> — the most aggressive any user may run.
+        At <Code>/settings/trading</Code> you can lower any of the five caps (risk per trade,
+        position size, max open trades, peak-drawdown halt, daily-loss halt) below the ceiling, but
+        you can't raise them above. Tighter values take effect on the next engine cycle (a few
+        seconds). Defensive by design: no UI path exists to a riskier setting than the operator
+        already chose.
+      </p>
+    </div>
   </Card>
 )
 
@@ -951,18 +963,334 @@ const Section11 = () => (
 )
 
 // ─── TOC sidebar ────────────────────────────────────────────────────────────
+// ─── Section: Account & onboarding ──────────────────────────────────────────
+const SectionAccount = () => (
+  <Card id="account" icon={UserPlus} title="Account & onboarding"
+        subtitle="From signup to first cycle — what each step is for, and where it lives in the UI.">
+    <p>
+      Ionic is a multi-tenant SaaS layered on top of the trading engine. Each user gets their
+      own isolated workspace: per-user database, per-user Config.yaml, per-user engine container
+      provisioned on demand. None of the data routing crosses tenants — your friend's trades
+      and yours never see each other.
+    </p>
+
+    <div className="rounded-lg p-4 my-3" style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+      <div className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>Onboarding flow</div>
+      <ol className="space-y-2 ml-5 list-decimal text-xs">
+        <li>
+          <strong style={{ color: 'var(--text-primary)' }}>Sign up</strong> at <Code>/signup</Code> with
+          email + password. Password is hashed with argon2id; we never store it in plaintext.
+        </li>
+        <li>
+          <strong style={{ color: 'var(--text-primary)' }}>Verify your email.</strong> Postmark sends a
+          one-time link. The link must be opened within 24 hours. Until verified, the dashboard
+          shows a yellow banner and live-mode is blocked.
+        </li>
+        <li>
+          <strong style={{ color: 'var(--text-primary)' }}>Accept the Terms of Service.</strong> A
+          modal shows the current ToS version. Acceptance is recorded with timestamp + version hash;
+          if we ever bump the ToS, the modal reappears and you can either accept or sign out.
+        </li>
+        <li>
+          <strong style={{ color: 'var(--text-primary)' }}>Provision your workspace.</strong> The
+          first time you visit the dashboard, you'll see a "Set up your trading workspace" panel
+          with a one-click button. Behind the scenes the provisioner daemon creates your per-user
+          DB, copies the default Config.yaml, and spins up a per-user engine container running in
+          shadow mode. Takes 10-15 seconds.
+        </li>
+        <li>
+          <strong style={{ color: 'var(--text-primary)' }}>Enable 2FA</strong> at <Code>/settings/account</Code>.
+          TOTP (RFC 6238) — works with Google Authenticator, Authy, 1Password, etc. You'll get 8
+          recovery codes; save them somewhere safe (a password manager, ideally). Optional for
+          shadow-mode users, but <strong>required before flipping to live</strong>.
+        </li>
+      </ol>
+    </div>
+
+    <p>
+      After step 4 your engine is running but it's only consuming market data — there's nothing
+      to trade with yet because no Oanda token is connected. That's the next section.
+    </p>
+
+    <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+      <strong>Security model:</strong> the operator (the human running the swarm) has technical
+      ability to access the database files. Per-user broker tokens are encrypted at rest with
+      AES-256-GCM under a master key the operator holds. This is self-hosted single-operator
+      infrastructure, not a financial institution. Bring only what you'd trust at a Vegas table.
+    </p>
+
+    <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+      <strong>Phase 1 caveat:</strong> Ionic is currently in Phase 1 scaffold. The full Oanda
+      broker integration is Phase 2. Today the engine boots, runs the consensus stack against
+      market data, and records signals to the database, but doesn't yet place trades against
+      Oanda. The Broker page accepts tokens and the validation works; what's missing is the
+      execution adapter. Watch the dashboard for the Phase 2 cutover.
+    </p>
+  </Card>
+)
+
+// ─── Section: Connecting Oanda ──────────────────────────────────────────────
+const SectionBroker = () => (
+  <Card id="broker" icon={KeyRound} title="Connecting Oanda (BYOK)"
+        subtitle="How your Oanda token + account_id flow through the system, and the practice-vs-live wrinkle.">
+    <p>
+      Ionic is <strong>BYOK</strong> — Bring Your Own Key. You generate a personal access token
+      on Oanda, grab your account ID, paste both into <Code>/settings/broker</Code>, and the
+      engine uses them to place orders against your Oanda account. We never see your funds; we
+      just send signed requests on your behalf.
+    </p>
+
+    <p>
+      The Broker page walks you through generation step-by-step (collapsible Step 1) and gates the
+      paste form behind a security acknowledgment checkbox (Step 2). Once you've pasted and
+      validated, the server detects what environment your account is bound to and shows it:
+    </p>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 my-3">
+      <div className="rounded-lg p-3" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.30)' }}>
+        <div className="font-semibold mb-1" style={{ color: GREEN }}>Live · funded</div>
+        <div className="text-xs">
+          Funded Oanda live account. Real-money trading. You can switch to live mode any time
+          from <Code>/settings/mode</Code>.
+        </div>
+      </div>
+      <div className="rounded-lg p-3" style={{ background: 'rgba(59,130,246,0.10)', border: '1px solid rgba(59,130,246,0.30)' }}>
+        <div className="font-semibold mb-1" style={{ color: BLUE }}>Practice · simulated</div>
+        <div className="text-xs">
+          Oanda practice account with simulated funds. Live mode runs against the practice
+          environment — no real capital at risk. Recommended starting point.
+        </div>
+      </div>
+    </div>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>The Oanda quirks:</strong> tokens are
+      environment-bound at generation time (practice token works against{' '}
+      <Code>api-fxpractice.oanda.com</Code>; live token against <Code>api-fxtrade.oanda.com</Code>).
+      The Account ID format tells you which: <Code>101-001-…</Code> is practice,{' '}
+      <Code>001-001-…</Code> is live. The Broker page records the environment with the encrypted
+      blob so the engine knows which API base URL to hit.
+    </p>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>Security model:</strong> Oanda tokens
+      don't have permission scopes — by design, a token can read account info AND place trades.
+      What Oanda does provide: tokens cannot transfer money out of your bank account, and you
+      can revoke any token at any time from Oanda's API access page, which kills the connection
+      immediately.
+    </p>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>Token encryption:</strong> after validation,
+      your token + account_id are encrypted at rest with AES-256-GCM under a master key the
+      operator holds. They're decrypted only in your bot's engine memory at trade time — never
+      written to disk in plaintext. Rotating the token replaces the encrypted blob; the old one
+      is overwritten atomically. Disconnecting deletes the blob and reverts the engine to
+      shadow mode.
+    </p>
+  </Card>
+)
+
+// ─── Section: Shadow vs Live mode ───────────────────────────────────────────
+const SectionMode = () => (
+  <Card id="mode" icon={ToggleLeft} title="Shadow vs Live mode"
+        subtitle="The two operating modes, the gate between them, and how the engine behaves in each.">
+    <p>
+      Every Ionic engine has two modes. <Tag color={BLUE}>SHADOW</Tag> is the default — the bot
+      consumes real market data, runs the full strategy stack, and records every decision to the
+      database, but never touches your Oanda account. <Tag color={GREEN}>LIVE</Tag> means the
+      same decisions actually execute (against practice or funded, depending on which token
+      you've connected).
+    </p>
+
+    <p>
+      Toggle mode at <Code>/settings/mode</Code>. The page shows a big switch with the current
+      mode highlighted, plus a confirmation flow before any state change.
+    </p>
+
+    <div className="rounded-lg p-4 my-3" style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+      <div className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>Going live — the gates</div>
+      <p className="text-xs mb-2">
+        Switching from shadow to live for the <strong>first time</strong> requires all of these to be true:
+      </p>
+      <ul className="space-y-1 ml-4 list-disc text-xs">
+        <li>Your account has 2FA enabled.</li>
+        <li>You've accepted the current Terms of Service.</li>
+        <li>Your Oanda token validated successfully (practice or live — both count).</li>
+        <li>You've explicitly confirmed an email-verification step — a one-time link from Postmark.</li>
+        <li>You're not in <Tag color={BLUE}>FROZEN</Tag> mode (see §12).</li>
+        <li>The Phase 2 broker adapter has shipped (see §2 caveat — until then live mode is a no-op).</li>
+      </ul>
+      <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+        Subsequent shadow ↔ live toggles only require the security acknowledgment checkbox on
+        the Mode page — the email gate is one-time.
+      </p>
+    </div>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>Existing positions:</strong> flipping mode
+      does NOT migrate open positions between ledgers. Shadow positions stay in the shadow ledger;
+      live positions stay live. If you flip from shadow to live while shadow positions are open,
+      they continue to be managed by the shadow exit engine until they close — the live engine
+      doesn't see them.
+    </p>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>What changes under the hood:</strong> in
+      shadow, every Telegram command operates on the in-DB shadow ledger and never hits the broker.
+      The autonomous loop builds exposure from <Code>get_shadow_exposure()</Code> instead of your
+      real Oanda balance. Going live flips every one of those paths to the real execution module
+      — same code, different destination.
+    </p>
+  </Card>
+)
+
+// ─── Section: Tax reporting ─────────────────────────────────────────────────
+const SectionTax = () => (
+  <Card id="tax" icon={FileText} title="Tax reporting (§988)"
+        subtitle="Year-end FX disposal records under IRC §988 ordinary-income treatment — not tax advice.">
+    <p>
+      Ionic generates a per-user tax report at <Code>/reports/tax</Code> covering every closed
+      disposal in a given calendar year. FX tax treatment is genuinely different from crypto and
+      equities, and the page reflects that.
+    </p>
+
+    <div className="rounded-lg p-4 my-3" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.30)' }}>
+      <div className="font-semibold mb-1" style={{ color: RED }}>⚠️ Not tax advice — and FX is special</div>
+      <p className="text-xs">
+        Under US <strong>IRC §988</strong> (default for retail spot FX), gains are{' '}
+        <strong>ordinary income</strong> — not capital gains. No short/long-term split. No
+        holding-period boundary. Reported on Schedule 1 line 8z (or Form 6781 line 1), NOT
+        Schedule D / Form 8949. The §988(a)(1)(B) opt-out into capital-gains treatment exists
+        but is rare for retail (it must be elected per-trade in writing BEFORE the trade).
+        Section 1256 (60/40 rule) doesn't apply to Oanda spot. Verify with a CPA.
+      </p>
+    </div>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>What's on the report:</strong> a row per
+      disposal with cost basis, proceeds, gain/loss, holding days (informational only — no term
+      split), and the fees attributed to that lot. Every disposal's <em>term</em> is{' '}
+      <Code>ordinary</Code>. The summary card aggregates to{' '}
+      <Code>total_ordinary_gain</Code> instead of the short/long breakdown the cap-gains bots
+      use.
+    </p>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>Lot-matching method.</strong> The page
+      still supports FIFO/LIFO/HIFO and you can pick a default at <Code>/settings/trading</Code>
+      — but under §988 it's mostly informational. Gains aggregate regardless of which lot was
+      matched. The choice matters if you ever elect §988(a)(1)(B) opt-out into capital-gains
+      treatment (where lot selection drives short/long allocation).
+    </p>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>DEMO mode.</strong> If you have no live
+      trades yet, the page surfaces your shadow trades as preview data with a bright DEMO
+      watermark. <em>Do not file this.</em> The watermark also appears in the CSV filename
+      (<Code>foundation-ionic-tax-2026-FIFO-DEMO.csv</Code>) and as a header comment in
+      the file.
+    </p>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>What's not modeled:</strong> financing /
+      swap charges (rollover interest), the §988(a)(1)(B) opt-out machinery, the §1256 election
+      for regulated futures, and any non-trade-related Oanda activity. If those apply to your
+      year, your CPA will need to fold them in separately.
+    </p>
+
+    <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+      <strong>Fee capture (Phase 1):</strong> Oanda's effective trading cost is the spread (no
+      separate commission on standard accounts). Phase 2 will extract this from the v20 trade
+      transaction stream and fold it into the per-lot fee attribution. For now the fee column
+      is zero; report numbers will become more accurate once Phase 2 lands.
+    </p>
+  </Card>
+)
+
+// ─── Section: Frozen mode (kill switch) ─────────────────────────────────────
+const SectionFrozen = () => (
+  <Card id="frozen" icon={Snowflake} title="Frozen mode (kill switch)"
+        subtitle="The big red button. When your bot enters frozen mode, why, and how to recover.">
+    <p>
+      <Tag color={BLUE}>FROZEN</Tag> is a hard halt state. The engine continues to run — it
+      consumes market data, computes indicators, surfaces signals — but it will <strong>not place
+      any trades</strong> until an authorized human unfreezes it. It's the operational equivalent
+      of pulling the e-stop on a robot arm: everything else keeps running so you can diagnose,
+      but no new motion happens.
+    </p>
+
+    <div className="rounded-lg p-4 my-3" style={{ background: 'var(--bg-base)', border: '1px solid var(--border)' }}>
+      <div className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>What freezes you</div>
+      <ul className="space-y-2 ml-4 list-disc text-xs">
+        <li>
+          <strong>You manually trigger it</strong> via <Code>/settings/danger</Code> → "Freeze
+          trading." Two-step confirmation. Reversible.
+        </li>
+        <li>
+          <strong>The drawdown circuit breaker fires.</strong> If your equity drops past
+          <Code>drawdown_halt_pct</Code> (default 25%) from its all-time peak, the engine freezes
+          itself. Requires manual <Code>/resume</Code> via Telegram to unfreeze, which re-checks
+          the drawdown gate.
+        </li>
+        <li>
+          <strong>The daily-loss circuit breaker fires.</strong> If your equity drops past{' '}
+          <Code>daily_halt_pct</Code> (default ~3%) versus UTC-midnight equity, you're frozen
+          for the rest of the day. Auto-resets at the next UTC midnight. (FX is 24×5; the
+          daily reset uses UTC midnight rather than a session open.)
+        </li>
+        <li>
+          <strong>The operator freezes you administratively.</strong> Rare, but possible if your
+          account is flagged for review (e.g. ToS violation suspicion).
+        </li>
+      </ul>
+    </div>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>What still works when frozen:</strong>
+    </p>
+    <ul className="space-y-1 ml-4 list-disc">
+      <li>Dashboard — full read-only access</li>
+      <li><Code>/reports/tax</Code> — pulls from historical data, no engine state needed</li>
+      <li>Telegram read-only commands (<Code>/report</Code>, <Code>/pnl</Code>, <Code>/indicators</Code>)</li>
+      <li>Settings changes that don't trigger trades (rotate Oanda token, edit risk caps)</li>
+    </ul>
+
+    <p>
+      <strong style={{ color: 'var(--text-primary)' }}>What's blocked:</strong> all autonomous
+      entries and exits, manual <Code>/buy</Code> via Telegram, mode toggle to live (frozen
+      blocks the flip). Existing open positions continue to be protected by their broker-side
+      stop orders — those were placed at fill time and don't depend on the engine being unfrozen
+      to fire.
+    </p>
+
+    <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+      The kill-switch logic is deliberately conservative: when in doubt, freeze. Recovery is
+      always manual + intentional — you have to come back to the dashboard or Telegram and
+      explicitly resume. There's no auto-recover-after-N-hours pattern because every
+      auto-recovery is an attack vector waiting to be exploited.
+    </p>
+  </Card>
+)
+
+// ─── TOC sidebar ────────────────────────────────────────────────────────────
 const TOC_ITEMS = [
-  { id: 'overview',  label: '1. What Ionic does',         icon: Compass },
-  { id: 'universe',  label: '2. The seven majors',        icon: Globe2 },
-  { id: 'paradigms', label: '3. The four paradigms',      icon: Layers },
-  { id: 'consensus', label: '4. The 2+1+1 consensus',     icon: Filter },
-  { id: 'risk',      label: '5. Risk management',         icon: Shield },
-  { id: 'tuning',    label: '6. The self-tuning engine',  icon: FlaskConical },
-  { id: 'dashboard', label: '7. Reading the dashboard',   icon: LayoutDashboard },
-  { id: 'blackout',  label: '8. Macro-event blackout',    icon: CalendarClock },
-  { id: 'telegram',  label: '9. Telegram commands',       icon: MessageSquare },
-  { id: 'playbook',  label: '10. Playbook',               icon: ListChecks },
-  { id: 'glossary',  label: 'Appendix · Glossary',        icon: Library },
+  { id: 'overview',  label: '1. What Ionic does',            icon: Compass },
+  { id: 'account',   label: '2. Account & onboarding',       icon: UserPlus },
+  { id: 'broker',    label: '3. Connecting Oanda (BYOK)',    icon: KeyRound },
+  { id: 'mode',      label: '4. Shadow vs Live mode',        icon: ToggleLeft },
+  { id: 'universe',  label: '5. The seven majors',           icon: Globe2 },
+  { id: 'paradigms', label: '6. The four paradigms',         icon: Layers },
+  { id: 'consensus', label: '7. The 2+1+1 consensus',        icon: Filter },
+  { id: 'risk',      label: '8. Risk management',            icon: Shield },
+  { id: 'tuning',    label: '9. The self-tuning engine',     icon: FlaskConical },
+  { id: 'dashboard', label: '10. Reading the dashboard',     icon: LayoutDashboard },
+  { id: 'tax',       label: '11. Tax reporting (§988)',      icon: FileText },
+  { id: 'frozen',    label: '12. Frozen mode (kill switch)', icon: Snowflake },
+  { id: 'blackout',  label: '13. Macro-event blackout',      icon: CalendarClock },
+  { id: 'telegram',  label: '14. Telegram commands',         icon: MessageSquare },
+  { id: 'playbook',  label: '15. Playbook',                  icon: ListChecks },
+  { id: 'glossary',  label: 'Appendix · Glossary',           icon: Library },
 ]
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -999,12 +1327,17 @@ export default function Guide() {
         {/* Main content */}
         <div className="col-span-12 lg:col-span-9 space-y-6">
           <Section1 />
+          <SectionAccount />
+          <SectionBroker />
+          <SectionMode />
           <Section2 />
           <Section3 />
           <Section4 />
           <Section5 />
           <Section6 />
           <Section7 />
+          <SectionTax />
+          <SectionFrozen />
           <Section8 />
           <Section9 />
           <Section10 />
