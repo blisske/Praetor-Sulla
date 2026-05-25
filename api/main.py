@@ -62,7 +62,7 @@ app = FastAPI(title="Foundation Ionic API", version="2.0.0")
 # Legacy env-hash /api/auth/login retired in this cutover — both operator
 # (user_id=1) and demo (user_id=2) authenticate via the shared
 # foundation/data/global.db now.
-from shared.api_auth import router as _auth_router      # noqa: E402 (after sys.path)
+from shared.api_auth import router as _auth_router, get_current_admin  # noqa: E402 (after sys.path)
 from api.byok     import router as _byok_router      # noqa: E402 (Oanda)
 from api.mode     import router as _mode_router      # noqa: E402
 from api.admin    import router as _admin_router     # noqa: E402
@@ -655,16 +655,24 @@ async def get_equity(ctx: AuthCtx = Depends(get_auth_ctx)):
         conn.close()
 
 @app.get("/api/config")
-async def get_config(user: str = Depends(get_current_user)):
+async def get_config(_admin = Depends(get_current_admin)):
+    """Operator's engine config. Admin-only — non-operator tenants were
+    seeing this until the 2026-05-25 bug-hunt caught the gap. Per-user
+    config UX is a separate feature not yet built."""
     config = config_manager.load_engine_config()
     return {"config": config}
 
 _CONFIG_REQUIRED_KEYS = {"oanda", "strategy", "risk", "ratchet", "ai_agent"}
 
 @app.post("/api/config")
-async def save_config(payload: dict, user: str = Depends(get_current_user)):
-    if user == DEMO_USERNAME:
-        raise HTTPException(status_code=403, detail="Demo account is read-only")
+async def save_config(payload: dict, _admin = Depends(get_current_admin)):
+    """Write operator's engine config. Admin-only.
+
+    Pre-2026-05-25 the gate was a coarse demo-only block (`user ==
+    DEMO_USERNAME`), which let every signed-up tenant POST this and
+    clobber the operator's bind-mounted Config.yaml — caught by the
+    bug-hunt harness against Doric. Same fix applied here for parity.
+    """
     new_cfg = payload.get("config", {})
     missing = _CONFIG_REQUIRED_KEYS - set(new_cfg.keys())
     if missing:
