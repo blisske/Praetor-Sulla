@@ -796,8 +796,10 @@ async def get_market(ctx: AuthCtx = Depends(get_auth_ctx), hours: int = 24):
         conn.close()
 
 @app.get("/api/watchlist")
-async def get_watchlist(user: str = Depends(get_current_user)):
-    """Returns the active symbol watchlist from Config.yaml."""
+async def get_watchlist(_admin = Depends(get_current_admin)):
+    """Returns the OPERATOR's active symbol watchlist from Config.yaml.
+    Admin-only — same fix as /api/config gate (42da616). Per-user
+    watchlist UX is a separate feature not yet built."""
     config  = config_manager.load_engine_config()
     symbols = config.get("strategy", {}).get("active_symbols", [])
     return {"symbols": symbols}
