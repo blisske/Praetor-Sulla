@@ -87,7 +87,6 @@ app.include_router(_tax_router)
 
 @app.on_event("startup")
 async def startup():
-    _init_login_log()
     if not DEMO_DB.exists() and REAL_DB.exists():
         import shutil
         shutil.copy(REAL_DB, DEMO_DB)
@@ -107,58 +106,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Rate limiter ───────────────────────────────────────────────────────────────
-_failed_attempts: dict = defaultdict(list)
-RATE_LIMIT_MAX    = 5
-RATE_LIMIT_WINDOW = 900  # 15 minutes
-
-def _check_rate_limit(ip: str):
-    now = time.time()
-    _failed_attempts[ip] = [t for t in _failed_attempts[ip] if now - t < RATE_LIMIT_WINDOW]
-    if len(_failed_attempts[ip]) >= RATE_LIMIT_MAX:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Too many failed login attempts. Try again in {RATE_LIMIT_WINDOW // 60} minutes."
-        )
-
-def _record_failure(ip: str):
-    _failed_attempts[ip].append(time.time())
-
-def _clear_failures(ip: str):
-    _failed_attempts.pop(ip, None)
-
-# ── Login attempt logging ─────────────────────────────────────────────────────
-def _init_login_log():
-    try:
-        conn = sqlite3.connect(REAL_DB)
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS login_attempts (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                username  TEXT,
-                ip        TEXT,
-                result    TEXT,
-                detail    TEXT
-            )
-        ''')
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"⚠️  Could not init login_attempts table: {e}")
-
-def _log_attempt(username: str, ip: str, result: str, detail: str = ""):
-    try:
-        conn = sqlite3.connect(REAL_DB)
-        conn.execute(
-            "INSERT INTO login_attempts (username, ip, result, detail) VALUES (?, ?, ?, ?)",
-            (username, ip, result, detail)
-        )
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
-
 # ── Auth config ───────────────────────────────────────────────────────────────
+# Legacy login-attempt logging (REAL_DB _init_login_log + _log_attempt) and
+# the pre-SaaS in-process rate limiter (_failed_attempts / _check_rate_limit /
+# _record_failure / _clear_failures) removed 2026-05-25 — all dead code.
+# Rate limiting lives in shared.auth.RateLimiter; attempt logging in
+# global.db via shared.auth.record_login_attempt() from the SaaS router.
 SECRET_KEY                = os.getenv("API_SECRET_KEY", "change-me-in-production")
 ALGORITHM                 = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # 8 hours
@@ -899,27 +852,29 @@ manager = ConnectionManager()
 
 async def _drain_pending_events():
     """
-    Background task: drains the engine's pending_events queue and broadcasts
-    each row over /ws via manager.broadcast(). The engine writes events
-    (trade fills, risk-mode transitions) inside database.log_trade() and
-    database.update_risk_state(); this task ships them to connected admin
-    clients with ~1s latency vs. waiting up to 5s for the next tick.
+    Background task: drains pending_events from every per-tenant DB plus
+    operator's REAL_DB, broadcasts each row to the owning tenant's WS
+    sockets via manager.broadcast(only_user_id=...).
 
-    Failures are swallowed and retried on the next iteration — a transient
-    DB lock or JSON glitch must not take the API down. Old rows are pruned
-    after 7 days so the table doesn't grow unbounded.
+    Per-tenant walking added 2026-05-25 — pre-fix this task only read
+    REAL_DB so tenant fills never reached tenant dashboards.
     """
     import logging
     log = logging.getLogger("ionic.api.drain")
-    prune_counter = 0
-    while True:
+    users_dir = REAL_DB.parent / "users"
+
+    async def _drain_one(db_path, broadcast_user_id):
         try:
-            conn = sqlite3.connect(REAL_DB)
+            conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT id, timestamp, event_type, payload FROM pending_events "
-                "WHERE broadcast_at IS NULL ORDER BY id LIMIT 50"
-            ).fetchall()
+            try:
+                rows = conn.execute(
+                    "SELECT id, timestamp, event_type, payload FROM pending_events "
+                    "WHERE broadcast_at IS NULL ORDER BY id LIMIT 50"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                conn.close()
+                return
             for r in rows:
                 try:
                     payload = json.loads(r["payload"])
@@ -930,28 +885,41 @@ async def _drain_pending_events():
                     "timestamp": r["timestamp"],
                     **payload,
                 }
-                # pending_events lives in REAL_DB only — scope the broadcast
-                # to the OPERATOR'S user_id specifically. The legacy
-                # only_user="admin" filter let every non-demo tenant
-                # eavesdrop on operator fills (bug caught 2026-05-25).
-                await manager.broadcast(msg, only_user_id=1)
+                await manager.broadcast(msg, only_user_id=broadcast_user_id)
                 conn.execute(
                     "UPDATE pending_events SET broadcast_at = ? WHERE id = ?",
                     (datetime.now(timezone.utc).isoformat(), r["id"]),
                 )
             conn.commit()
+            conn.close()
+        except sqlite3.Error as exc:
+            log.warning(f"drain {db_path} user_id={broadcast_user_id}: {exc}")
+
+    prune_counter = 0
+    while True:
+        try:
+            await _drain_one(REAL_DB, 1)
+            if users_dir.exists():
+                for entry in users_dir.iterdir():
+                    if not entry.is_dir() or not entry.name.isdigit():
+                        continue
+                    uid = int(entry.name)
+                    if uid <= 2:
+                        continue
+                    per_user_db = entry / "ionic.db"
+                    if per_user_db.exists():
+                        await _drain_one(per_user_db, uid)
 
             prune_counter += 1
             if prune_counter >= 60:
                 cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-                conn.execute(
-                    "DELETE FROM pending_events WHERE broadcast_at IS NOT NULL AND broadcast_at < ?",
-                    (cutoff,),
-                )
-                conn.commit()
+                with sqlite3.connect(REAL_DB) as pconn:
+                    pconn.execute(
+                        "DELETE FROM pending_events WHERE broadcast_at IS NOT NULL AND broadcast_at < ?",
+                        (cutoff,),
+                    )
+                    pconn.commit()
                 prune_counter = 0
-
-            conn.close()
         except Exception as e:
             log.warning(f"pending_events drain iteration failed: {e}")
         await asyncio.sleep(1.0)

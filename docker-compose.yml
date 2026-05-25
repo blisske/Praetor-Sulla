@@ -83,6 +83,11 @@ services:
       PYTHONUNBUFFERED:   "1"
       PYTHONPATH:         "/app"
       TZ:                 ${TZ:-America/Denver}
+      # Bug-hunt harness flag (added 2026-05-25). When set to "1", the
+      # signup+login rate limiters skip emails matching the sealed
+      # bughunt+ prefix. Both gates required so a leaked env var alone
+      # can't disable rate limiting for real users. REMOVE for production.
+      BUGHUNT_BYPASS_RATELIMIT: "${BUGHUNT_BYPASS_RATELIMIT:-1}"
     volumes:
       - ${IONIC_DATA_DIR:-./data}:/app/data
       # Shared cross-bot identity DB — see GLOBAL_DB_PATH above
