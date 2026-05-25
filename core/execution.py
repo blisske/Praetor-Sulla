@@ -252,6 +252,54 @@ def execute_take_profit(symbol: str) -> tuple[bool, float, float]:
     return True, pl_usd, fee_usd
 
 
+def execute_partial_take_profit(symbol: str, units: int) -> tuple[bool, float, float]:
+    """LIVE partial-TP exit: close PART of an open long position at market.
+
+    Used by the engine when strategy.check_exit_signals returns
+    PARTIAL_TAKE_PROFIT — typically sells half the position, lets the rest
+    keep running with a tighter stop.
+
+    The remaining units stay open and continue to be managed by Oanda's
+    attached server-side stop. The engine separately calls
+    execute_ratchet_stop to update that stop after the partial.
+
+    Args:
+        symbol: "EUR/USD" or "EUR_USD"
+        units:  POSITIVE integer count of units to close.
+
+    Returns:
+        (success, pl_usd, fee_usd) — partial close P&L and fee.
+
+    Failure tuple: (False, 0.0, 0.0).
+    """
+    if units <= 0:
+        logger.warning(f"[{symbol}] partial-TP called with units={units}; skipping.")
+        return False, 0.0, 0.0
+
+    client = _client_or_log("execute_partial_take_profit")
+    if client is None:
+        return False, 0.0, 0.0
+
+    logger.info(f"[{symbol}] Live PARTIAL TP: closing {units} units at market")
+    try:
+        resp = client.close_partial_position(symbol, units=units, side="long")
+    except OandaError as e:
+        logger.error(f"[{symbol}] Oanda partial close rejected: {e}")
+        return False, 0.0, 0.0
+
+    fill = resp.get("longOrderFillTransaction") or {}
+    if not fill:
+        logger.warning(f"[{symbol}] partial close had no fill transaction in response.")
+        return False, 0.0, 0.0
+
+    pl_usd  = extract_close_pl_usd(resp, side="long")
+    fee_usd = extract_close_fee_usd(resp, side="long")
+    logger.info(
+        f"[{symbol}] ✅ partial closed: P&L ${pl_usd:+.2f}, fee ${fee_usd:.4f}"
+    )
+    return True, pl_usd, fee_usd
+
+
 def execute_ratchet_stop(symbol: str, new_stop_price: float) -> bool:
     """LIVE trend-following stop ratchet: tighten the stop on the open trade.
 

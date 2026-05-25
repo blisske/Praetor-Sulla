@@ -1,7 +1,102 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-24 (+3) (Phase 2.5 main.py live-path wiring complete)
+> Last updated: 2026-05-24 (+4) (parity sprint — Ionic at code-parity with Corinthian/Doric)
+
+---
+
+## 2026-05-24 (+4) — Parity sprint: Ionic at code-parity with the other two bots
+
+**All six identified code-parity gaps closed in this commit.** Ionic now
+matches the structural completeness of Corinthian + Doric. What's left
+before the live flip is operational (config alignment + 7-14 day shadow
+soak), not code. See `CLAUDE.md` "Live Deployment Gates" for the
+checklist.
+
+**Gaps closed:**
+
+1. **Partial TP live path** — new `oanda_client.close_partial_position()`
+   (passes longUnits=<n> instead of "ALL" to the same /positions/.../close
+   endpoint), new `execution.execute_partial_take_profit()` wrapper, main.py
+   branches at L431 to call it in live mode + then push BE stop via
+   ratchet for the surviving units.
+
+2. **Kill switch live path** — `cmd_confirm_kill` now branches on
+   shadow_mode. Live iterates open positions and calls
+   `execute_take_profit` (which = close_position) for each, logging
+   `SELL` rows with Oanda-authoritative P&L + fee. Failures collected
+   and surfaced in the final Telegram report.
+
+3. **Oanda equity reconciliation** — new `live_account_cache` table
+   (single-row, id=1 sentinel). Engine cycle calls `client.get_account()`
+   in live mode and upserts NAV + balance + unrealized_pl + margin
+   fields. Stale threshold 5min. New `database.get_account_state(
+   shadow_mode)` wrapper unifies the read path: shadow → synthetic math;
+   live → cache; live + stale cache → fall back to shadow math with
+   `source: 'live-fallback-shadow'` so UI can flag it. `cmd_report`
+   updated to use the wrapper + surface the cache-stale state.
+
+4. **Tuner integration** — added `_try_promote_tunings(sym)` helper that
+   wraps `tuner.check_promotions()`. Called after every
+   `database.close_open_position(sym)` site (6 places: 2 in
+   `_run_exit_engine`, 1 in `_reconcile_live_positions`, 2 in
+   `cmd_confirm_kill`, 1 in the stop-hit reconciliation path). Mirrors
+   Corinthian's L1374/L1435 pattern.
+
+5. **`cmd_protect` live wiring** — was DB-only with a stale "live mode not
+   yet wired" comment. Now in live mode, after writing the DB stop, also
+   calls `execute_ratchet_stop` to push the protective stop to Oanda.
+   Reports per-symbol whether Oanda accepted ("Oanda stop set") or
+   rejected ("DB only — see logs") so operator knows the actual state.
+
+6. **`Config.live.example.yaml` + Live Deployment Gates doc** —
+   created mirroring Corinthian's `Config.aggressive.example.yaml`.
+   Production-conservative settings: `risk_per_trade_pct: 1.5%`,
+   `position_size_max_pct: 8%`, `max_open_trades: 4`,
+   `correlation_aware_sizing.enabled: true` (FX majors are heavily
+   USD-correlated), pyramiding OFF until first single-leg trend
+   completes. `CLAUDE.md` Phase Status updated to reflect Phases 2-5
+   are done; new "Live Deployment Gates" section with 7-step checklist
+   modeled on Corinthian's pattern.
+
+**Smoke-verified:** ionic-engine rebuilt cleanly. All 7 majors pulling
+real OHLCV, consensus logic running, Telegram polling active (operator
+had already set TELEGRAM_BOT_TOKEN). Macro calendar refreshed (92 events
+this week, 11 high-impact). No regression.
+
+**Tests:** full Ionic suite still passes — 70 tests total (32 tax + 38
+oanda_client). No new tests added in this commit (the new code paths
+have no easy unit-test surface — they're integration paths that need a
+real Oanda account or a mocked HTTP layer; the existing 38 oanda_client
+tests cover the shape correctness of the methods invoked).
+
+**What changed in files:**
+- `core/oanda_client.py`: +30 lines (close_partial_position method)
+- `core/execution.py`: +55 lines (execute_partial_take_profit)
+- `core/database.py`: +90 lines (live_account_cache table +
+  upsert/get/get_account_state helpers)
+- `core/main.py`: ~150 lines net change (partial TP branch, kill switch
+  branch, equity cache refresh in cycle, cmd_protect live wiring,
+  cmd_report wrapper change, _try_promote_tunings helper + 6 invocations)
+- `core/Config.live.example.yaml`: new (110 lines)
+- `CLAUDE.md`: Phase Status updated + new Live Deployment Gates section
+
+**Ionic readiness now matches Corinthian/Doric:**
+| Phase | Status |
+|---|---|
+| 1 — Scaffold | ✅ |
+| 2 — Oanda adapter | ✅ |
+| 2.5 — main.py live wiring | ✅ |
+| 3 — FX math | ✅ |
+| 4 — Macro calendar | ✅ |
+| **5 — Shadow contract + Telegram + Guide + tax + UI re-theme** | **✅ (this commit closes the last gaps)** |
+| 6 — Soak + live gates | ⏳ time-based only |
+
+**Remaining for live flip (all operational):**
+- 7-14 day shadow soak with criteria from CLAUDE.md gates section
+- Operator: confirm Oanda token connected + scope=trade
+- Config alignment per `Config.live.example.yaml`
+- Final `oanda.shadow_mode: true → false` flip
 
 ---
 

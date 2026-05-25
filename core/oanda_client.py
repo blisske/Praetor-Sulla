@@ -423,7 +423,7 @@ class OandaClient:
         return self._post(f"/v3/accounts/{self.account_id}/orders", body)
 
     def close_position(self, symbol: str, side: str = "long") -> dict:
-        """Flat a position at market.
+        """Flat a position at market (close ALL units on the given side).
 
         Args:
             symbol: "EUR/USD" or "EUR_USD"
@@ -437,6 +437,35 @@ class OandaClient:
         """
         instrument = _to_oanda_instrument(symbol)
         body = {"longUnits": "ALL"} if side == "long" else {"shortUnits": "ALL"}
+        return self._put(
+            f"/v3/accounts/{self.account_id}/positions/{instrument}/close",
+            json_body=body,
+        )
+
+    def close_partial_position(self, symbol: str, units: int,
+                               side: str = "long") -> dict:
+        """Close PART of a position at market — partial take-profit path.
+
+        Oanda accepts either the literal string "ALL" or a stringified positive
+        integer for longUnits/shortUnits. We pass the unit count as a string.
+        The remaining units stay open and continue to be managed by the
+        attached stop-loss server-side.
+
+        Args:
+            symbol: "EUR/USD" or "EUR_USD"
+            units:  POSITIVE integer — quantity of units to close. The Oanda
+                    API expects positive on the close side regardless of long
+                    or short. Caller passes whatever the partial size should be.
+            side:   "long" or "short"
+
+        Returns the close transaction with the same shape as close_position()
+        but only the partial units are closed.
+        """
+        if units <= 0:
+            raise OandaError(f"close_partial_position: units must be > 0; got {units}")
+        instrument = _to_oanda_instrument(symbol)
+        unit_str = str(int(units))
+        body = {"longUnits": unit_str} if side == "long" else {"shortUnits": unit_str}
         return self._put(
             f"/v3/accounts/{self.account_id}/positions/{instrument}/close",
             json_body=body,

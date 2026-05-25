@@ -1,0 +1,102 @@
+# =============================================================================
+# IONIC LIVE PROFILE — REFERENCE / EXAMPLE FILE (NOT LOADED BY THE BOT)
+# =============================================================================
+#
+# Production-ready settings for flipping Ionic into live mode against an
+# Oanda account. This file is NEVER loaded automatically — it documents
+# the recommended changes from the shadow-defaults shipped in core/Config.yaml.
+#
+# To activate live trading:
+#   1. Read CLAUDE.md "Live Deployment Gates" section. ALL gates must clear.
+#   2. Manually edit core/Config.yaml (or the per-user data/Config.yaml) to
+#      mirror the values below.
+#   3. Verify your Oanda token is connected at /settings/broker AND has
+#      validated against the right environment (practice or live — Account
+#      ID format tells you which: 101-... = practice, 001-... = live).
+#   4. Confirm shadow_mode is STILL true.
+#   5. Run the 7–14 day shadow soak (≥5 closed trades, ≥1 pyramid sequence,
+#      ≥1 tiered-drawdown event, ≥1 tuner cycle).
+#   6. THEN flip shadow_mode → false.
+#
+# Keys NOT shown here (ai_agent, ratchet, tuning, symbol_overrides,
+# macro_blackout) are unchanged from the existing Config.yaml.
+# =============================================================================
+
+oanda:
+  shadow_mode: true              # MUST stay true through soak validation phase
+  # account_currency: USD        # Inferred from Oanda; informational
+
+risk:
+  # Production-conservative values. FX scales differently from crypto:
+  # leverage isn't used (Ionic is spot, 1:1), so position-cap percentages
+  # translate directly into capital exposure. risk_per_trade_pct of 1.5%
+  # on a $10K account = $150 risked per trade.
+  initial_capital: 10000.0       # Practice baseline; live should match funded
+  min_trade_size_usd: 100.0      # Smaller than equities/crypto; FX spreads tighter
+  risk_per_trade_pct: 1.5        # WAS 5.0 in paper-aggressive — drop for live
+  position_size_max_pct: 8.0     # WAS 12.0 in paper-aggressive — drop for live
+
+  # Tiered drawdown — same ladder as Corinthian/Doric
+  drawdown_alert_pct: 8.0        # Telegram alert only
+  drawdown_derisk_pct: 15.0      # Halve sizing when DD crosses this from peak
+  drawdown_halt_pct: 25.0        # Hard halt — manual /resume required
+  drawdown_recovery_pct: 10.0    # Exit derisk when DD recovers above this
+  derisk_size_multiplier: 0.5    # During derisk: risk + cap × 0.5
+  daily_halt_pct: 3.0            # Single-day loss limit — auto-resets at UTC midnight
+
+  # Correlation-aware sizing: FX majors are heavily USD-correlated (6 of 7
+  # have USD on one side), so this matters more than for crypto. Enable for
+  # live to prevent stacking 4-5 USD-long bets simultaneously.
+  correlation_aware_sizing:
+    enabled: true
+    threshold: 0.7
+    size_reduction: 0.5
+
+strategy:
+  adx_trend_threshold: 25        # FX trends are noisier than crypto; lower threshold
+  timeframe: "1h"
+  max_open_trades: 4             # Tighter than Corinthian (6) — FX correlation drag
+  autonomous_mode: true
+
+  # Pyramiding — DEFAULT OFF for first live deployment. Enable only after
+  # you've observed at least 1 trend trade complete cleanly at single-leg.
+  # FX trends can persist much longer than crypto/equity moves, so pyramiding
+  # CAN work well here — but verify single-leg behavior first.
+  pyramiding:
+    enabled: false
+    max_legs:
+      trend_following:     3
+      volatility_breakout: 2
+    leg_decay_factor: 0.5
+    trigger_atr_mult: 1.0
+
+  # Partial profit-taking — half the position at first TP signal, trail
+  # the rest with stop moved to breakeven. Reduces give-back on reversals.
+  partial_profit_taking:
+    enabled: true
+    sell_pct: 50.0
+    move_stop_to_breakeven: true
+
+  active_symbols:
+    - EUR/USD
+    - GBP/USD
+    - AUD/USD
+    - NZD/USD
+    - USD/JPY
+    - USD/CHF
+    - USD/CAD
+
+consensus:
+  min_consensus_score: 3         # 1 primary + 2 of 3 supporting (unchanged)
+  llm_reasoning: true
+  bearish_abort: true
+
+# Macro blackout — high-impact FX events (NFP, FOMC, ECB, CPI) can move
+# majors 50+ pips in seconds. Block new entries in a ±N-hour window around
+# them. Existing positions ride out — Oanda's attached stop will fire if
+# the move is bad enough.
+macro_blackout:
+  enabled: true
+  pre_event_hours:  2            # No new entries N hours BEFORE event
+  post_event_hours: 1            # No new entries N hours AFTER event
+  min_impact: "HIGH"             # Only block on HIGH-impact events (filters noise)

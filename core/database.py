@@ -206,6 +206,27 @@ def init_db():
                 broadcast_at  TEXT
             )
         ''')
+
+        # Table 11: Live account cache — engine writes Oanda NAV/balance every
+        # cycle when shadow_mode=False so the dashboard/api can show the real
+        # broker-side equity instead of the synthetic shadow_cash (which
+        # diverges from Oanda once live trading starts). Single-row table
+        # (id=1 sentinel); engine UPSERTs on each refresh. last_updated
+        # lets readers detect staleness — fall back to shadow math if older
+        # than ~5 min.
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS live_account_cache (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                nav             REAL,     -- net asset value (Oanda's "NAV")
+                balance         REAL,     -- realized cash balance
+                unrealized_pl   REAL,     -- open-positions mark-to-market
+                margin_used     REAL,     -- margin currently used
+                margin_avail    REAL,     -- margin still available
+                open_trades     INTEGER,  -- Oanda's open-trade count (sanity)
+                currency        TEXT,     -- account currency (typically USD)
+                last_updated    DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         c.execute('''
             CREATE INDEX IF NOT EXISTS idx_pending_events_unbroadcast
             ON pending_events(id) WHERE broadcast_at IS NULL
@@ -1226,4 +1247,107 @@ def get_shadow_account_state(latest_prices: dict | None = None) -> dict:
         'equity':      cash + market_value,
         'cash':        cash,
         'held_assets': {p['symbol']: p['shares'] for p in positions},
+    }
+
+
+def upsert_live_account_cache(*, nav: float, balance: float,
+                              unrealized_pl: float, margin_used: float = 0.0,
+                              margin_avail: float = 0.0,
+                              open_trades: int = 0,
+                              currency: str = "USD") -> None:
+    """Engine writes Oanda's authoritative numbers here once per cycle in
+    live mode. Single-row table (id=1). UPSERT pattern."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("""
+            INSERT INTO live_account_cache
+              (id, nav, balance, unrealized_pl, margin_used, margin_avail,
+               open_trades, currency, last_updated)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+              nav           = excluded.nav,
+              balance       = excluded.balance,
+              unrealized_pl = excluded.unrealized_pl,
+              margin_used   = excluded.margin_used,
+              margin_avail  = excluded.margin_avail,
+              open_trades   = excluded.open_trades,
+              currency      = excluded.currency,
+              last_updated  = CURRENT_TIMESTAMP
+        """, (nav, balance, unrealized_pl, margin_used, margin_avail,
+              open_trades, currency))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"upsert_live_account_cache failed: {e}")
+
+
+def get_live_account_cache(max_age_seconds: int = 300) -> dict | None:
+    """Return the cached Oanda account state, or None if missing/stale.
+    Stale threshold defaults to 5 minutes — readers should fall back to
+    shadow math if None is returned (engine likely down or just booted)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("""
+            SELECT nav, balance, unrealized_pl, margin_used, margin_avail,
+                   open_trades, currency,
+                   strftime('%s', 'now') - strftime('%s', last_updated) AS age_s
+            FROM live_account_cache WHERE id = 1
+        """).fetchone()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"get_live_account_cache failed: {e}")
+        return None
+    if row is None:
+        return None
+    age = int(row['age_s'] or 0)
+    if age > max_age_seconds:
+        return None
+    return {
+        'nav':           row['nav'] or 0.0,
+        'balance':       row['balance'] or 0.0,
+        'unrealized_pl': row['unrealized_pl'] or 0.0,
+        'margin_used':   row['margin_used'] or 0.0,
+        'margin_avail':  row['margin_avail'] or 0.0,
+        'open_trades':   int(row['open_trades'] or 0),
+        'currency':      row['currency'] or 'USD',
+        'age_seconds':   age,
+    }
+
+
+def get_account_state(shadow_mode: bool = True,
+                      latest_prices: dict | None = None) -> dict:
+    """Unified account-state read. Routes by mode:
+
+    - shadow_mode=True: synthetic ledger math (get_shadow_account_state).
+    - shadow_mode=False: live Oanda NAV from the cache, with shadow math
+      as fallback if the cache is stale or missing.
+
+    Return shape is always: {equity, cash, held_assets, source}
+    where `source` is 'shadow' | 'live' | 'live-fallback-shadow' so
+    callers can flag stale data in the UI.
+    """
+    if shadow_mode:
+        state = get_shadow_account_state(latest_prices)
+        state['source'] = 'shadow'
+        return state
+
+    cache = get_live_account_cache()
+    if cache is None:
+        # Live mode but cache stale → fall back to shadow math so the
+        # dashboard isn't blank. UI shows the source so the user knows.
+        state = get_shadow_account_state(latest_prices)
+        state['source'] = 'live-fallback-shadow'
+        return state
+
+    positions = get_all_open_positions()
+    return {
+        'equity':      cache['nav'],            # NAV = balance + unrealized
+        'cash':        cache['balance'],
+        'held_assets': {p['symbol']: p['shares'] for p in positions},
+        'source':      'live',
+        'unrealized_pl': cache['unrealized_pl'],
+        'margin_used':   cache['margin_used'],
+        'margin_avail':  cache['margin_avail'],
+        'last_updated_seconds_ago': cache['age_seconds'],
     }

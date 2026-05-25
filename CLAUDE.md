@@ -181,11 +181,62 @@ Ionic shares the Foundation architecture wholesale:
 
 - ✅ **Phase 1** — Repo + infra scaffold. Containers boot, dashboard loads,
   restart flow verified.
-- ⏳ **Phase 2** — Oanda broker adapter. Real OHLCV bars + token auth.
-- ⏳ **Phase 3** — FX math (pip values, JPY handling, unit sizing).
-- ⏳ **Phase 4** — Macro calendar blackout.
-- ⏳ **Phase 5** — Shadow contract + Telegram cmds + Guide.
-- ⏳ **Phase 6** — Soak + live deployment gates.
+- ✅ **Phase 2** — Oanda broker adapter. Real OHLCV bars + token auth,
+  full order/position support, per-user credential dispatch.
+- ✅ **Phase 2.5** — main.py live-path wiring (autonomous BUY, manual /buy,
+  pyramid, TP, ratchet, reconciliation) — `oanda.shadow_mode: false` now
+  actually trades on Oanda.
+- ✅ **Phase 3** — FX math (pip values, JPY handling, unit sizing) —
+  `core/fx_math.py` shipped.
+- ✅ **Phase 4** — Macro calendar blackout — `core/macro_calendar.py`
+  shipped; blocks entries around HIGH-impact NFP/FOMC/ECB/CPI prints.
+- ✅ **Phase 5** — Shadow contract (every shadow path branches mode-aware),
+  Telegram cmds wired (`/buy`, `/kill`, `/confirm_kill`, `/protect`,
+  `/apply`, `/report`, `/pnl`, `/indicators`, `/resume`, `/restart`,
+  `/calendar`), partial-TP + kill-switch live paths, Oanda equity
+  reconciliation (live_account_cache table), tuner promotion on close,
+  Guide page updated for SaaS era + §988 tax.
+- ⏳ **Phase 6** — Soak + live deployment gates. See below.
+
+---
+
+## Live Deployment Gates (ALL must clear before `shadow_mode: false`)
+
+Mirrors the gates Corinthian + Doric use, adapted for FX:
+
+1. **Operator action: BotFather token in `~/swarm/ionic/.env`** as
+   `TELEGRAM_BOT_TOKEN=<token>`. Engine starts polling automatically
+   after restart.
+2. **Per-user Oanda token connected** at `/settings/broker` and validated
+   (scope='trade'). Account ID format (`101-...` practice vs `001-...`
+   live) confirms the right environment.
+3. **7-14 day shadow soak** with ALL of:
+   - ≥5 closed shadow trades across multiple pairs/paradigms
+   - ≥1 successful pyramid sequence (entry + at least one add — requires
+     `strategy.pyramiding.enabled: true` during soak)
+   - ≥1 simulated tiered-drawdown event (manually move peak via DB or
+     wait for natural drawdown crossing 8% / 15% / 25% tiers)
+   - ≥1 self-tuning cycle complete (10+ closed shadow trades per symbol
+     triggers tuner; another 10 to validate; promotion requires PF ≥+5%)
+   - No circuit-breaker trips during the soak (frozen mode, daily-loss
+     halt, or peak-drawdown halt should all stay clear)
+   - No orphan Oanda positions (account check shows 0 unexplained
+     positions at end of soak)
+4. **Config alignment** per `core/Config.live.example.yaml` — lower
+   `risk_per_trade_pct` from paper-aggressive (5%) to live-conservative
+   (1.5%), `position_size_max_pct` from 12% to 8%, enable
+   `correlation_aware_sizing` (FX majors are USD-correlated).
+5. **No active drawdown halt** at the moment of flip — `risk_state.risk_mode`
+   must be `NORMAL` (not `ALERT`, `DERISK`, or `HALT`).
+6. **Service restart confirmed clean** — full `docker compose up -d
+   --build ionic-engine` cycles with no errors in logs.
+7. **`oanda.shadow_mode: true → false`** in Config.yaml as the final step.
+   Engine restart picks it up. Next cycle's BUYs go through
+   `execute_buy_with_stop` against the real Oanda account.
+
+After flip: watch the dashboard's account-state source indicator —
+if it shows `live-fallback-shadow` instead of `live`, the Oanda NAV
+cache is stale (engine cycle hasn't completed or Oanda is unreachable).
 
 ---
 

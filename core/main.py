@@ -245,6 +245,19 @@ async def _maybe_send_reveille() -> None:
     _last_reveille_day = today
 
 
+# ─── Tuner-promotion check (called after every position close) ─────────────
+def _try_promote_tunings(sym: str) -> None:
+    """Wrapper around tuner.check_promotions(sym). Called after a position
+    closes to see if any pending self-tuning parameter changes accumulated
+    enough validation closes to promote. Logs each promotion. Never raises.
+    """
+    try:
+        for msg in tuner.check_promotions(sym):
+            logger.info(f"[{sym}] tuner: {msg}")
+    except Exception as e:
+        logger.warning(f"[{sym}] tuner.check_promotions failed: {e}")
+
+
 # ─── Symbol parsing helpers ─────────────────────────────────────────────────
 def _normalize_symbol(raw: str) -> str | None:
     """
@@ -323,6 +336,7 @@ async def _reconcile_live_positions(open_db_positions: list[dict],
         database.log_trade(sym, 'SELL', close_price, round(pnl_usd, 2),
                            entry_strat, verdict)
         database.close_open_position(sym)
+        _try_promote_tunings(sym)
         dir_emoji = "🟢" if pnl_pct > 0 else ("🔴" if pnl_pct < 0 else "⚪")
         logger.info(
             f"[{sym}] {dir_emoji} RECONCILED CLOSE | {entry_strat} · "
@@ -400,6 +414,7 @@ async def _run_exit_engine(config: dict, latest_indicators: dict,
                                entry_strat, verdict)
             database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, cur_stop))
             database.close_open_position(sym)
+            _try_promote_tunings(sym)
             dir_emoji = "🟢" if pnl_pct > 0 else ("🔴" if pnl_pct < 0 else "⚪")
             logger.info(
                 f"[{sym}] {dir_emoji} SHADOW STOP HIT | {entry_strat} · "
@@ -436,30 +451,72 @@ async def _run_exit_engine(config: dict, latest_indicators: dict,
             else:
                 remaining_units = units - units_to_sell
                 pnl_pct = ((price - entry_price) / entry_price * 100) if entry_price else 0.0
-                partial_pnl_usd = (fx_math.position_notional_usd(sym, units_to_sell, price)
-                                   - fx_math.position_notional_usd(sym, units_to_sell, entry_price))
                 remaining_size_usd = fx_math.position_notional_usd(sym, remaining_units, entry_price)
                 ppt_cfg = config.get('strategy', {}).get('partial_profit_taking', {})
                 new_stop = entry_price if ppt_cfg.get('move_stop_to_breakeven', True) else None
 
-                database.log_trade(
-                    sym, 'SHADOW PARTIAL SELL', price, round(partial_pnl_usd, 2),
-                    entry_strat, f'PARTIAL TP: {pnl_pct:.2f}% on {sell_pct*100:.0f}%',
-                    position_size_usd=fx_math.position_notional_usd(sym, units_to_sell, entry_price),
-                )
-                database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units_to_sell, price))
-                database.mark_partial_exit(sym, remaining_units, remaining_size_usd, new_stop=new_stop)
-                logger.info(
-                    f"[{sym}] 💵 SHADOW PARTIAL TP | {entry_strat} · sold {units_to_sell:,} units "
-                    f"@ +{pnl_pct:.2f}% (${partial_pnl_usd:+.2f}) | {remaining_units:,} remain"
-                )
-                await _notify(
-                    f"💵 <b>SHADOW PARTIAL TP</b> {sym}\n"
-                    f"🟢 {entry_strat} · sold {units_to_sell:,} units @ +{pnl_pct:.2f}% "
-                    f"(${partial_pnl_usd:+.2f})\n"
-                    + (f"Stop → ${fx_math.fp(new_stop, sym)} (BE), trailing {remaining_units:,} to upper BB"
-                       if new_stop else "")
-                )
+                if shadow_mode:
+                    partial_pnl_usd = (fx_math.position_notional_usd(sym, units_to_sell, price)
+                                       - fx_math.position_notional_usd(sym, units_to_sell, entry_price))
+                    database.log_trade(
+                        sym, 'SHADOW PARTIAL SELL', price, round(partial_pnl_usd, 2),
+                        entry_strat, f'PARTIAL TP: {pnl_pct:.2f}% on {sell_pct*100:.0f}%',
+                        position_size_usd=fx_math.position_notional_usd(sym, units_to_sell, entry_price),
+                    )
+                    database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units_to_sell, price))
+                    database.mark_partial_exit(sym, remaining_units, remaining_size_usd, new_stop=new_stop)
+                    logger.info(
+                        f"[{sym}] 💵 SHADOW PARTIAL TP | {entry_strat} · sold {units_to_sell:,} units "
+                        f"@ +{pnl_pct:.2f}% (${partial_pnl_usd:+.2f}) | {remaining_units:,} remain"
+                    )
+                    await _notify(
+                        f"💵 <b>SHADOW PARTIAL TP</b> {sym}\n"
+                        f"🟢 {entry_strat} · sold {units_to_sell:,} units @ +{pnl_pct:.2f}% "
+                        f"(${partial_pnl_usd:+.2f})\n"
+                        + (f"Stop → ${fx_math.fp(new_stop, sym)} (BE), trailing {remaining_units:,} to upper BB"
+                           if new_stop else "")
+                    )
+                else:
+                    # LIVE: close PART of the position via Oanda. Stop on the
+                    # remaining units stays attached server-side. If BE-move
+                    # requested, push the new stop via ratchet right after.
+                    ok, pl_usd, fee_usd = await asyncio.to_thread(
+                        execution.execute_partial_take_profit, sym, units_to_sell,
+                    )
+                    if not ok:
+                        logger.warning(
+                            f"[{sym}] live PARTIAL TP failed — will retry next cycle."
+                        )
+                        continue
+                    database.log_trade(
+                        sym, 'PARTIAL SELL', price, round(pl_usd, 2),
+                        entry_strat,
+                        f'PARTIAL TP: {pnl_pct:.2f}% on {sell_pct*100:.0f}% (Oanda P&L ${pl_usd:+.2f})',
+                        position_size_usd=fx_math.position_notional_usd(sym, units_to_sell, entry_price),
+                        fee_usd=fee_usd,
+                    )
+                    database.mark_partial_exit(sym, remaining_units, remaining_size_usd, new_stop=new_stop)
+                    # Push BE stop to Oanda for the surviving units
+                    if new_stop is not None and new_stop > cur_stop:
+                        live_ok = await asyncio.to_thread(
+                            execution.execute_ratchet_stop, sym, new_stop
+                        )
+                        if not live_ok:
+                            logger.warning(
+                                f"[{sym}] partial TP: post-partial stop ratchet to "
+                                f"${fx_math.fp(new_stop, sym)} REJECTED — server-side stop stale."
+                            )
+                    logger.info(
+                        f"[{sym}] 💵 LIVE PARTIAL TP | {entry_strat} · sold {units_to_sell:,} units "
+                        f"@ +{pnl_pct:.2f}% (${pl_usd:+.2f}, fee ${fee_usd:.2f}) | {remaining_units:,} remain"
+                    )
+                    await _notify(
+                        f"💵 <b>LIVE PARTIAL TP</b> {sym}\n"
+                        f"🟢 {entry_strat} · sold {units_to_sell:,} units @ +{pnl_pct:.2f}% "
+                        f"(${pl_usd:+.2f}, fee ${fee_usd:.2f})\n"
+                        + (f"Stop → ${fx_math.fp(new_stop, sym)} (BE), trailing {remaining_units:,}"
+                           if new_stop else "")
+                    )
             continue
 
         if exit_cmd.get('action') == 'TAKE_PROFIT':
@@ -472,6 +529,7 @@ async def _run_exit_engine(config: dict, latest_indicators: dict,
                                    entry_strat, verdict)
                 database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
                 database.close_open_position(sym)
+                _try_promote_tunings(sym)
                 logger.info(
                     f"[{sym}] 🟢 SHADOW TAKE PROFIT | {entry_strat} · "
                     f"+{pnl_pct:.2f}% (${pnl_usd:+.2f}) · "
@@ -498,6 +556,7 @@ async def _run_exit_engine(config: dict, latest_indicators: dict,
                 database.log_trade(sym, 'SELL', price, round(pl_usd, 2),
                                    entry_strat, verdict, fee_usd=fee_usd)
                 database.close_open_position(sym)
+                _try_promote_tunings(sym)
                 logger.info(
                     f"[{sym}] 🟢 LIVE TAKE PROFIT | {entry_strat} · "
                     f"+{pnl_pct:.2f}% (${pl_usd:+.2f}, fee ${fee_usd:.2f}) · "
@@ -949,6 +1008,30 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
             logger.error(f"[{sym}] log_market_state failed: {e}")
 
     shadow_mode = config.get('oanda', {}).get('shadow_mode', True)
+
+    # In live mode, refresh the Oanda account cache once per cycle so the
+    # dashboard + /api/equity show real broker-side NAV instead of the
+    # synthetic shadow_cash (which diverges from Oanda once live trading
+    # begins). Best-effort — if Oanda call fails, the dashboard falls
+    # back to shadow math (UI flags it as 'live-fallback-shadow').
+    if not shadow_mode:
+        try:
+            client = market_data.get_client()
+            if client is not None:
+                acct = await asyncio.to_thread(client.get_account)
+                a = acct.get('account', {}) if isinstance(acct, dict) else {}
+                database.upsert_live_account_cache(
+                    nav            = float(a.get('NAV', 0)             or 0),
+                    balance        = float(a.get('balance', 0)         or 0),
+                    unrealized_pl  = float(a.get('unrealizedPL', 0)    or 0),
+                    margin_used    = float(a.get('marginUsed', 0)      or 0),
+                    margin_avail   = float(a.get('marginAvailable', 0) or 0),
+                    open_trades    = int(a.get('openTradeCount', 0)    or 0),
+                    currency       = str(a.get('currency', 'USD')),
+                )
+        except Exception as e:
+            logger.warning(f"Oanda account-cache refresh failed: {e}")
+
     try:
         await _run_exit_engine(config, latest, shadow_mode=shadow_mode)
     except Exception as e:
@@ -1145,10 +1228,14 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Use the cached prices we have in the open positions; for a freshly-loaded
     # dashboard request we'd ideally re-fetch, but for the report use what's in
     # market_states most recently.
-    snap = database.get_shadow_account_state()
+    # In live mode, get_account_state pulls real Oanda NAV from the cache
+    # (refreshed each cycle in main loop); falls back to shadow math if cache
+    # is stale.
+    snap = database.get_account_state(shadow_mode=shadow_mode)
     equity = snap.get('equity', 0.0)
     cash   = snap.get('cash',   0.0)
     held   = snap.get('held_assets', {})
+    source = snap.get('source', 'shadow')
 
     peak_eq = database.get_equity_peak() or 0.0
     dd_pct  = max(0.0, (peak_eq - equity) / peak_eq * 100) if peak_eq > 0 else 0.0
@@ -1157,6 +1244,8 @@ async def cmd_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     risk_icon = risk_icons.get(risk_state.get('risk_mode', 'NORMAL'), '✅')
 
     mode_tag = "👻 SHADOW" if shadow_mode else "🔴 LIVE"
+    if source == 'live-fallback-shadow':
+        mode_tag += " <i>(Oanda cache stale — showing shadow math)</i>"
     sections = [f"📊 <b>Command Report</b>  ·  {mode_tag}"]
 
     acct_lines = [
@@ -1457,7 +1546,18 @@ async def cmd_protect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             skipped.append(f"{sym} (invalid stop)")
             continue
         database.update_shadow_stop(sym, sl_price)
-        protected.append(f"{sym} @ {sl_price:.5f}")
+        # LIVE: also push the stop to Oanda so the protection is real, not
+        # just a DB-side hint. Falls back to DB-only if Oanda rejects.
+        live_label = ""
+        if not shadow_mode:
+            live_ok = await asyncio.to_thread(
+                execution.execute_ratchet_stop, sym, sl_price
+            )
+            if live_ok:
+                live_label = " (Oanda stop set)"
+            else:
+                live_label = " (DB only — Oanda modify failed; see logs)"
+        protected.append(f"{sym} @ {sl_price:.5f}{live_label}")
 
     msg = ["🛡️ <b>Protection Scan Complete</b>"]
     if protected:
@@ -1469,7 +1569,8 @@ async def cmd_protect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not protected and not skipped:
         msg.append("All positions already protected.")
     if not shadow_mode:
-        msg.append("<i>Note: live-mode stop orders via Oanda are not yet wired — DB stops only.</i>")
+        msg.append("<i>Live mode: stops pushed to Oanda via modify_trade_stop. "
+                   "Server-side protection.</i>")
 
     await update.message.reply_html("\n".join(msg))
 
@@ -1488,7 +1589,12 @@ async def cmd_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_confirm_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Two-step confirm — close all open shadow positions at current price."""
+    """Two-step confirm — close all open positions at market.
+
+    Shadow mode: synthetic close at current market price, log SHADOW SELL.
+    Live mode: real Oanda close_position for each instrument, log SELL with
+    actual P&L + fee from Oanda's close transaction.
+    """
     global _kill_armed_at
     if not _auth(update): return
     if _kill_armed_at == 0 or (time.time() - _kill_armed_at) > KILL_WINDOW_SECONDS:
@@ -1497,34 +1603,76 @@ async def cmd_confirm_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     _kill_armed_at = 0
-    await update.message.reply_html("👻 <b>EXECUTING SHADOW KILL...</b>")
 
     cfg = config_manager.load_engine_config()
     tf  = cfg.get('strategy', {}).get('timeframe', '1h')
+    shadow_mode = cfg.get('oanda', {}).get('shadow_mode', True)
+
+    if shadow_mode:
+        await update.message.reply_html("👻 <b>EXECUTING SHADOW KILL...</b>")
+    else:
+        await update.message.reply_html(
+            "🔴 <b>EXECUTING LIVE KILL — closing all positions on Oanda...</b>"
+        )
+
     closed = 0
+    failures: list[str] = []
     for pos in database.get_all_open_positions():
         sym = pos['symbol']
         try:
-            d = await market_data.fetch_indicators(sym, config=cfg, timeframe=tf)
-            if not d:
-                continue
-            price = d['price']
-            entry = pos['entry_price']
-            units = pos.get('shares', 0.0)
-            pnl_usd = (fx_math.position_notional_usd(sym, units, price)
-                       - fx_math.position_notional_usd(sym, units, entry))
-            pnl_pct = ((price - entry) / entry * 100) if entry else 0.0
-            database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
-                               pos.get('strategy', '?'),
-                               f'KILL SWITCH: {pnl_pct:.1f}%')
-            database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
-            database.close_open_position(sym)
-            closed += 1
+            if shadow_mode:
+                d = await market_data.fetch_indicators(sym, config=cfg, timeframe=tf)
+                if not d:
+                    continue
+                price = d['price']
+                entry = pos['entry_price']
+                units = pos.get('shares', 0.0)
+                pnl_usd = (fx_math.position_notional_usd(sym, units, price)
+                           - fx_math.position_notional_usd(sym, units, entry))
+                pnl_pct = ((price - entry) / entry * 100) if entry else 0.0
+                database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
+                                   pos.get('strategy', '?'),
+                                   f'KILL SWITCH: {pnl_pct:.1f}%')
+                database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
+                database.close_open_position(sym)
+                _try_promote_tunings(sym)
+                closed += 1
+            else:
+                # LIVE: close the position at market via Oanda. Use the same
+                # execute_take_profit helper since it does exactly this and
+                # returns (success, pl_usd, fee_usd).
+                ok, pl_usd, fee_usd = await asyncio.to_thread(
+                    execution.execute_take_profit, sym
+                )
+                if not ok:
+                    failures.append(sym)
+                    logger.error(f"[{sym}] kill switch live close failed.")
+                    continue
+                # Use current Oanda fill price for the log row's price field —
+                # but we don't have it directly; fall back to entry+pl estimate.
+                # Most common: the actual fill price will be close to current
+                # market and pl_usd is authoritative regardless.
+                entry = pos['entry_price']
+                units = pos.get('shares', 0.0)
+                # Approximate fill from pl: if pl=units*(close-entry)*pip_value,
+                # we can back-solve. But for simplicity use entry as the log price
+                # and rely on pl_usd as the source of truth (Oanda-authoritative).
+                database.log_trade(sym, 'SELL', entry, round(pl_usd, 2),
+                                   pos.get('strategy', '?'),
+                                   f'LIVE KILL SWITCH (Oanda P&L ${pl_usd:+.2f})',
+                                   fee_usd=fee_usd)
+                database.close_open_position(sym)
+                _try_promote_tunings(sym)
+                closed += 1
         except Exception as e:
-            logger.error(f"[{sym}] kill close failed: {e}")
-    await update.message.reply_html(
-        f"✅ <b>SHADOW KILL COMPLETE.</b> {closed} position(s) closed."
-    )
+            failures.append(sym)
+            logger.error(f"[{sym}] kill close failed: {e}", exc_info=True)
+
+    mode_tag = "SHADOW" if shadow_mode else "LIVE"
+    msg = f"✅ <b>{mode_tag} KILL COMPLETE.</b> {closed} position(s) closed."
+    if failures:
+        msg += f"\n⚠️ Failed to close: {', '.join(failures)} — check Oanda manually."
+    await update.message.reply_html(msg)
 
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
