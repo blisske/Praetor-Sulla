@@ -258,15 +258,120 @@ def _normalize_symbol(raw: str) -> str | None:
     return f"{s[:3]}/{s[3:]}"
 
 
-# ─── Shadow exit engine ─────────────────────────────────────────────────────
-async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None:
+# ─── Live position reconciliation ───────────────────────────────────────────
+async def _reconcile_live_positions(open_db_positions: list[dict],
+                                    latest_indicators: dict) -> None:
+    """LIVE-MODE ONLY: detect DB positions that no longer exist on Oanda.
+
+    Cases this catches:
+      - Oanda's server-side attached stop fired (the most common case —
+        engine sleeps between cycles, broker fires the stop, position is
+        gone by the time we wake).
+      - User manually closed via Oanda's web UI.
+      - Margin call closed the position.
+
+    For each missing position we log a `SELL (RECONCILED)` row using the
+    current market price as an approximate close price. The realized P&L
+    is approximate — for exact figures the user should pull from Oanda's
+    own transaction history. The DB row is closed so the engine stops
+    trying to manage a position that no longer exists.
+
+    Returns nothing — side effects only.
     """
-    Iterates every open shadow position and checks for stop hits, take-profits,
+    try:
+        client = market_data.get_client()
+    except Exception:
+        client = None
+    if client is None:
+        logger.warning("Live reconcile: OandaClient unavailable; skipping.")
+        return
+
+    try:
+        live_positions = await asyncio.to_thread(client.get_open_positions)
+    except Exception as e:
+        logger.error(f"Live reconcile: could not fetch open positions: {e}")
+        return
+
+    live_instruments = {
+        p.get("instrument", "").replace("_", "/")
+        for p in live_positions
+        # Only count positions that actually have units open (long or short)
+        if (p.get("long", {}).get("units") not in (None, "0"))
+        or (p.get("short", {}).get("units") not in (None, "0"))
+    }
+
+    for pos in open_db_positions:
+        sym = pos['symbol']
+        if sym in live_instruments:
+            continue  # still open on Oanda — no action
+
+        # DB says open, Oanda says closed — reconcile.
+        entry_price = pos['entry_price']
+        entry_strat = pos['strategy']
+        units       = pos.get('shares', 0.0)
+        d           = latest_indicators.get(sym, {})
+        close_price = d.get('price', entry_price)  # fall back to entry if no data
+
+        # Approximate P&L from current price (NOT exact — Oanda's records
+        # are authoritative for the actual fill price).
+        pnl_usd = (fx_math.position_notional_usd(sym, units, close_price)
+                   - fx_math.position_notional_usd(sym, units, entry_price))
+        pnl_pct = ((close_price - entry_price) / entry_price * 100) if entry_price else 0.0
+        verdict = (f'RECONCILED: position no longer on Oanda. '
+                   f'Approximate P&L from current price: {pnl_pct:+.2f}%. '
+                   f'See Oanda transaction history for exact.')
+        database.log_trade(sym, 'SELL', close_price, round(pnl_usd, 2),
+                           entry_strat, verdict)
+        database.close_open_position(sym)
+        dir_emoji = "🟢" if pnl_pct > 0 else ("🔴" if pnl_pct < 0 else "⚪")
+        logger.info(
+            f"[{sym}] {dir_emoji} RECONCILED CLOSE | {entry_strat} · "
+            f"~{pnl_pct:+.2f}% (approx ${pnl_usd:+.2f}) — "
+            f"check Oanda for exact fill price/P&L."
+        )
+        await _notify(
+            f"🔄 <b>POSITION RECONCILED</b> {sym}\n"
+            f"{dir_emoji} {entry_strat} · ~{pnl_pct:+.2f}% "
+            f"({'+' if pnl_usd >= 0 else ''}${pnl_usd:,.2f} approx)\n"
+            f"<i>Closed by Oanda (likely server-side stop). "
+            f"Check Oanda transaction history for exact fill.</i>"
+        )
+
+
+# ─── Exit engine ────────────────────────────────────────────────────────────
+async def _run_exit_engine(config: dict, latest_indicators: dict,
+                           shadow_mode: bool = True) -> None:
+    """
+    Iterates every open position and checks for stop hits, take-profits,
     or trailing-stop ratchets. Notifies Telegram on every close.
+
+    shadow_mode=True  (default): all side effects hit the synthetic ledger
+                                 in database.py — no Oanda calls.
+    shadow_mode=False (live):    take-profits and ratchets call Oanda via
+                                 execution.execute_take_profit /
+                                 execute_ratchet_stop. STOP HITS in live
+                                 mode are handled by Oanda's server-side
+                                 attached stop — this function skips the
+                                 stop-check and relies on the periodic
+                                 reconciliation pass (see
+                                 _reconcile_live_positions).
     """
     open_positions = database.get_all_open_positions()
     if not open_positions:
         return
+
+    # In live mode, reconcile first: detect positions that closed via
+    # Oanda's server-side attached stop (or external close) so we don't
+    # try to take-profit a phantom position next.
+    if not shadow_mode:
+        try:
+            await _reconcile_live_positions(open_positions, latest_indicators)
+        except Exception as e:
+            logger.error(f"Live reconciliation failed: {e}", exc_info=True)
+        # Refresh — positions may have been closed by reconciliation
+        open_positions = database.get_all_open_positions()
+        if not open_positions:
+            return
 
     for pos in open_positions:
         sym = pos['symbol']
@@ -282,7 +387,11 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
         atr         = d['atr']
 
         # ── A. Stop hit ────────────────────────────────────────────────────
-        if cur_stop > 0 and price <= cur_stop:
+        # Shadow mode: synthetic check against DB stop.
+        # Live mode: skip — Oanda's server-side attached stop has already
+        # fired (or hasn't yet), and reconciliation above will have closed
+        # the DB row if Oanda did fill. We never simulate stop hits in live.
+        if shadow_mode and cur_stop > 0 and price <= cur_stop:
             pnl_usd = (fx_math.position_notional_usd(sym, units, cur_stop)
                        - fx_math.position_notional_usd(sym, units, entry_price))
             pnl_pct = ((cur_stop - entry_price) / entry_price * 100) if entry_price else 0.0
@@ -354,25 +463,52 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
             continue
 
         if exit_cmd.get('action') == 'TAKE_PROFIT':
-            pnl_usd = (fx_math.position_notional_usd(sym, units, price)
-                       - fx_math.position_notional_usd(sym, units, entry_price))
             pnl_pct = ((price - entry_price) / entry_price * 100) if entry_price else 0.0
-            verdict = f'TAKE PROFIT: {pnl_pct:.2f}%'
-            database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
-                               entry_strat, verdict)
-            database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
-            database.close_open_position(sym)
-            logger.info(
-                f"[{sym}] 🟢 SHADOW TAKE PROFIT | {entry_strat} · "
-                f"+{pnl_pct:.2f}% (${pnl_usd:+.2f}) · "
-                f"{fx_math.fp(entry_price, sym)}→{fx_math.fp(price, sym)}"
-            )
-            await _notify(
-                f"💰 <b>SHADOW TAKE PROFIT</b> {sym}\n"
-                f"🟢 {entry_strat} · +{pnl_pct:.2f}% "
-                f"(+${pnl_usd:,.2f}) · "
-                f"${fx_math.fp(entry_price, sym)}→${fx_math.fp(price, sym)}"
-            )
+            if shadow_mode:
+                pnl_usd = (fx_math.position_notional_usd(sym, units, price)
+                           - fx_math.position_notional_usd(sym, units, entry_price))
+                verdict = f'TAKE PROFIT: {pnl_pct:.2f}%'
+                database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
+                                   entry_strat, verdict)
+                database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
+                database.close_open_position(sym)
+                logger.info(
+                    f"[{sym}] 🟢 SHADOW TAKE PROFIT | {entry_strat} · "
+                    f"+{pnl_pct:.2f}% (${pnl_usd:+.2f}) · "
+                    f"{fx_math.fp(entry_price, sym)}→{fx_math.fp(price, sym)}"
+                )
+                await _notify(
+                    f"💰 <b>SHADOW TAKE PROFIT</b> {sym}\n"
+                    f"🟢 {entry_strat} · +{pnl_pct:.2f}% "
+                    f"(+${pnl_usd:,.2f}) · "
+                    f"${fx_math.fp(entry_price, sym)}→${fx_math.fp(price, sym)}"
+                )
+            else:
+                # LIVE: close the position at market via Oanda.
+                ok, pl_usd, fee_usd = await asyncio.to_thread(
+                    execution.execute_take_profit, sym
+                )
+                if not ok:
+                    logger.warning(
+                        f"[{sym}] live TP failed — will retry next cycle. "
+                        f"(Oanda close rejected; position likely still open.)"
+                    )
+                    continue
+                verdict = f'TAKE PROFIT: {pnl_pct:.2f}% (Oanda P&L ${pl_usd:+.2f})'
+                database.log_trade(sym, 'SELL', price, round(pl_usd, 2),
+                                   entry_strat, verdict, fee_usd=fee_usd)
+                database.close_open_position(sym)
+                logger.info(
+                    f"[{sym}] 🟢 LIVE TAKE PROFIT | {entry_strat} · "
+                    f"+{pnl_pct:.2f}% (${pl_usd:+.2f}, fee ${fee_usd:.2f}) · "
+                    f"{fx_math.fp(entry_price, sym)}→{fx_math.fp(price, sym)}"
+                )
+                await _notify(
+                    f"💰 <b>LIVE TAKE PROFIT</b> {sym}\n"
+                    f"🟢 {entry_strat} · +{pnl_pct:.2f}% "
+                    f"(${pl_usd:+,.2f}, fee ${fee_usd:.2f}) · "
+                    f"${fx_math.fp(entry_price, sym)}→${fx_math.fp(price, sym)}"
+                )
             continue
 
         # ── B2. Regime-shift tightening ────────────────────────────────────
@@ -383,7 +519,18 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
         if exit_cmd.get('action') == 'HOLD_AND_TIGHTEN':
             tight_sl = max(entry_price, price - atr)
             if tight_sl > cur_stop and tight_sl < price:
+                # Always update DB stop so the dashboard sees it
                 database.update_shadow_stop(sym, tight_sl)
+                # In live, also push the new stop to Oanda
+                if not shadow_mode:
+                    live_ok = await asyncio.to_thread(
+                        execution.execute_ratchet_stop, sym, tight_sl
+                    )
+                    if not live_ok:
+                        logger.warning(
+                            f"[{sym}] HOLD_AND_TIGHTEN: Oanda stop modify "
+                            f"failed; DB stop updated but server-side stop is stale."
+                        )
                 logger.info(
                     f"[{sym}] HOLD_AND_TIGHTEN: stop "
                     f"{fx_math.fp(cur_stop, sym)} → {fx_math.fp(tight_sl, sym)} "
@@ -404,6 +551,15 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
         new_stop = price - (atr * trail_mult)
         if cur_stop > 0 and new_stop > cur_stop:
             database.update_shadow_stop(sym, new_stop)
+            if not shadow_mode:
+                live_ok = await asyncio.to_thread(
+                    execution.execute_ratchet_stop, sym, new_stop
+                )
+                if not live_ok:
+                    logger.warning(
+                        f"[{sym}] ratchet: Oanda stop modify failed; "
+                        f"DB stop updated but server-side stop is stale."
+                    )
             logger.info(
                 f"[{sym}] ratchet: stop "
                 f"{fx_math.fp(cur_stop, sym)} → {fx_math.fp(new_stop, sym)}"
@@ -414,6 +570,7 @@ async def _run_shadow_exit_engine(config: dict, latest_indicators: dict) -> None
 async def _evaluate_pyramid_add(
     sym: str, d: dict, config: dict, shadow_cash: float,
     shadow_equity: float, py_cfg: dict,
+    shadow_mode: bool = True,
 ) -> None:
     """
     Adds a leg to an existing position when pyramiding conditions pass.
@@ -492,43 +649,85 @@ async def _evaluate_pyramid_add(
         )
         return
 
+    # In LIVE mode, submit the leg to Oanda FIRST. Only if it fills do we
+    # record the leg in the DB (we don't want a phantom leg if the Oanda
+    # order is rejected). Reuse the existing position's stop_price for
+    # the new leg — Oanda attaches it server-side to the new fill.
+    fill_price = d['price']
+    fee_usd    = 0.0
+    if not shadow_mode:
+        existing_stop = float(pos.get('current_stop') or 0.0)
+        if existing_stop <= 0:
+            logger.warning(
+                f"[{sym}] pyramid leg #{leg_count+1}: existing position has "
+                f"no current_stop set — refusing live add without a stop."
+            )
+            return
+        ok, fill_price, fee_usd = await asyncio.to_thread(
+            execution.execute_buy_with_stop, sym, leg_units, existing_stop,
+        )
+        if not ok:
+            logger.warning(
+                f"[{sym}] live pyramid leg #{leg_count+1} REJECTED by Oanda — "
+                f"no DB leg created."
+            )
+            return
+
     added = database.add_pyramid_leg(
-        symbol=sym, leg_price=d['price'], leg_atr=d['atr'], leg_shares=leg_units,
+        symbol=sym, leg_price=fill_price, leg_atr=d['atr'], leg_shares=leg_units,
     )
     if not added:
         return
 
-    database.log_trade(
-        sym, 'SHADOW BUY', d['price'], leg_units, paradigm,
-        f"PYRAMID LEG #{leg_count+1}/{max_legs} · base={base_units} units · "
-        f"decay={size_decay}^{leg_count}",
-    )
-    database.adjust_shadow_cash(-leg_notional)
+    if shadow_mode:
+        database.log_trade(
+            sym, 'SHADOW BUY', d['price'], leg_units, paradigm,
+            f"PYRAMID LEG #{leg_count+1}/{max_legs} · base={base_units} units · "
+            f"decay={size_decay}^{leg_count}",
+        )
+        database.adjust_shadow_cash(-leg_notional)
+        action_tag = "SHADOW"
+    else:
+        database.log_trade(
+            sym, 'BUY ADD', fill_price, leg_units, paradigm,
+            f"PYRAMID LEG #{leg_count+1}/{max_legs} · base={base_units} units · "
+            f"decay={size_decay}^{leg_count} · live",
+            fee_usd=fee_usd,
+        )
+        action_tag = "LIVE"
+
     logger.info(
-        f"[{sym}] 🟢 PYRAMID LEG #{leg_count+1}/{max_legs} | {paradigm} · "
-        f"{leg_units:,} units @ {fx_math.fp(d['price'], sym)} | "
+        f"[{sym}] 🟢 {action_tag} PYRAMID LEG #{leg_count+1}/{max_legs} | "
+        f"{paradigm} · {leg_units:,} units @ {fx_math.fp(fill_price, sym)} | "
         f"notional ${leg_notional:,.2f}"
+        + (f" | fee ${fee_usd:.2f}" if not shadow_mode else "")
     )
     icons = {"TREND FOLLOWING": "📈", "VOLATILITY BREAKOUT": "🚀"}
+    icon = icons.get(paradigm, "🎯")
+    badge = "👻" if shadow_mode else "🔴"
     await _notify(
-        f"👻 {icons.get(paradigm, '🎯')} <b>PYRAMID LEG #{leg_count+1}/{max_legs}</b>\n"
+        f"{badge} {icon} <b>{action_tag} PYRAMID LEG #{leg_count+1}/{max_legs}</b>\n"
         f"Pair: {sym}\n"
         f"Strategy: {paradigm}\n"
-        f"Units: {leg_units:,} · Entry: ${fx_math.fp(d['price'], sym)} · "
+        f"Units: {leg_units:,} · Entry: ${fx_math.fp(fill_price, sym)} · "
         f"Notional: ${leg_notional:,.2f}"
+        + (f" · Fee: ${fee_usd:.2f}" if not shadow_mode else "")
     )
 
 
-# ─── Entry consensus + shadow buy ───────────────────────────────────────────
+# ─── Entry consensus + buy (shadow or live) ─────────────────────────────────
 async def _evaluate_entry(sym: str, d: dict, config: dict,
                           open_symbols: set[str], shadow_cash: float,
-                          shadow_equity: float) -> None:
+                          shadow_equity: float,
+                          shadow_mode: bool = True) -> None:
     # If a position already exists for this symbol, we either pyramid into it
     # (if pyramiding is enabled and the trigger conditions pass) or skip.
     if sym in open_symbols:
         py_cfg = config.get('pyramiding') or {}
         if py_cfg.get('enabled', False):
-            await _evaluate_pyramid_add(sym, d, config, shadow_cash, shadow_equity, py_cfg)
+            await _evaluate_pyramid_add(sym, d, config, shadow_cash,
+                                        shadow_equity, py_cfg,
+                                        shadow_mode=shadow_mode)
         return
 
     # ── Macro-event blackout (Phase 4) ───────────────────────────────────
@@ -629,19 +828,6 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
         f"[SCORE:{consensus_score}/{min_consensus} | {' | '.join(sup_reasons)}] "
         f"{verdict_body}"
     )
-    database.log_trade(sym, 'SHADOW BUY', d['price'], units, paradigm, enriched_verdict,
-                       position_size_usd=notional)
-    database.record_open_position(
-        symbol=sym, entry_price=d['price'], strategy=paradigm,
-        entry_atr=d['atr'], shares=units, position_size_usd=notional,
-    )
-    database.update_shadow_stop(sym, stop_price)
-    database.adjust_shadow_cash(-notional)
-    logger.info(
-        f"[{sym}] 🟢 SHADOW BUY | {paradigm} · {units:,} units @ "
-        f"{fx_math.fp(d['price'], sym)} | stop {fx_math.fp(stop_price, sym)} | "
-        f"notional ${notional:,.2f}"
-    )
 
     icons = {
         "TREND FOLLOWING":     "📈",
@@ -651,13 +837,78 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
     }
     icon = icons.get(paradigm, "🎯")
     sentiment_tag = "🟢 BULLISH" if is_bullish else f"🔴 {verdict_str}"
+
+    if shadow_mode:
+        # ── SHADOW: synthetic ledger only ──
+        database.log_trade(sym, 'SHADOW BUY', d['price'], units, paradigm, enriched_verdict,
+                           position_size_usd=notional)
+        database.record_open_position(
+            symbol=sym, entry_price=d['price'], strategy=paradigm,
+            entry_atr=d['atr'], shares=units, position_size_usd=notional,
+        )
+        database.update_shadow_stop(sym, stop_price)
+        database.adjust_shadow_cash(-notional)
+        logger.info(
+            f"[{sym}] 🟢 SHADOW BUY | {paradigm} · {units:,} units @ "
+            f"{fx_math.fp(d['price'], sym)} | stop {fx_math.fp(stop_price, sym)} | "
+            f"notional ${notional:,.2f}"
+        )
+        await _notify(
+            f"👻 {icon} <b>SHADOW BUY</b>\n"
+            f"Pair: {sym}\n"
+            f"Strategy: {paradigm}\n"
+            f"Units: {units:,} · Entry: ${fx_math.fp(d['price'], sym)} · "
+            f"Stop: ${fx_math.fp(stop_price, sym)}\n"
+            f"Notional: ${notional:,.2f}\n"
+            f"Consensus: {consensus_score}/{min_consensus} | {' | '.join(sup_reasons)}\n"
+            f"AI Sentiment: {sentiment_tag}\n\n"
+            f"{html_escape(verdict_body)}"
+        )
+        return
+
+    # ── LIVE: submit MARKET FOK to Oanda with attached stop ──
+    ok, fill_price, fee_usd = await asyncio.to_thread(
+        execution.execute_buy_with_stop, sym, units, stop_price,
+    )
+    if not ok:
+        logger.warning(
+            f"[{sym}] live BUY failed (Oanda rejected or did not fill); "
+            f"no DB position created. Will retry next eligible cycle."
+        )
+        await _notify(
+            f"⚠️ <b>LIVE BUY REJECTED</b> {sym}\n"
+            f"{paradigm} · {units:,} units · "
+            f"Oanda did not fill — see engine logs."
+        )
+        return
+
+    # Record DB position at the ACTUAL fill price (may differ slightly from
+    # the indicator-cycle price by 1-2 pips of slippage). Stop is whatever
+    # Oanda accepted server-side (we sent stop_price; if it adjusted to
+    # instrument precision it's effectively the same).
+    database.log_trade(sym, 'BUY', fill_price, units, paradigm, enriched_verdict,
+                       position_size_usd=notional, fee_usd=fee_usd)
+    database.record_open_position(
+        symbol=sym, entry_price=fill_price, strategy=paradigm,
+        entry_atr=d['atr'], shares=units, position_size_usd=notional,
+    )
+    database.update_shadow_stop(sym, stop_price)
+    # NOTE: live mode does NOT call adjust_shadow_cash — the real cash is
+    # tracked on Oanda; the shadow_cash field becomes informational only
+    # (the dashboard will diverge from Oanda balance — Phase 5 will reconcile).
+    logger.info(
+        f"[{sym}] 🟢 LIVE BUY | {paradigm} · {units:,} units @ "
+        f"{fx_math.fp(fill_price, sym)} (req {fx_math.fp(d['price'], sym)}) | "
+        f"stop {fx_math.fp(stop_price, sym)} | fee ${fee_usd:.2f} | "
+        f"notional ${notional:,.2f}"
+    )
     await _notify(
-        f"👻 {icon} <b>SHADOW BUY</b>\n"
+        f"🔴 {icon} <b>LIVE BUY</b>\n"
         f"Pair: {sym}\n"
         f"Strategy: {paradigm}\n"
-        f"Units: {units:,} · Entry: ${fx_math.fp(d['price'], sym)} · "
+        f"Units: {units:,} · Fill: ${fx_math.fp(fill_price, sym)} · "
         f"Stop: ${fx_math.fp(stop_price, sym)}\n"
-        f"Notional: ${notional:,.2f}\n"
+        f"Notional: ${notional:,.2f} · Fee: ${fee_usd:.2f}\n"
         f"Consensus: {consensus_score}/{min_consensus} | {' | '.join(sup_reasons)}\n"
         f"AI Sentiment: {sentiment_tag}\n\n"
         f"{html_escape(verdict_body)}"
@@ -697,10 +948,11 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
         except Exception as e:
             logger.error(f"[{sym}] log_market_state failed: {e}")
 
+    shadow_mode = config.get('oanda', {}).get('shadow_mode', True)
     try:
-        await _run_shadow_exit_engine(config, latest)
+        await _run_exit_engine(config, latest, shadow_mode=shadow_mode)
     except Exception as e:
-        logger.error(f"Shadow exit engine failed: {e}", exc_info=True)
+        logger.error(f"Exit engine failed: {e}", exc_info=True)
 
     if not config.get('strategy', {}).get('autonomous_mode', True):
         return
@@ -796,7 +1048,8 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
             logger.warning(f"[{sym}] daily_trend lookup failed: {e} — defaulting to BULL")
             d['daily_trend'] = 'BULL'
         try:
-            await _evaluate_entry(sym, d, config, open_symbols, shadow_cash, shadow_equity)
+            await _evaluate_entry(sym, d, config, open_symbols, shadow_cash,
+                                  shadow_equity, shadow_mode=shadow_mode)
         except Exception as e:
             logger.error(f"[{sym}] entry evaluation failed: {e}", exc_info=True)
         open_symbols = {p['symbol'] for p in database.get_all_open_positions()}
@@ -1041,7 +1294,13 @@ async def cmd_pnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/buy PAIR USD — manual buy, bypasses consensus. Shadow only."""
+    """/buy PAIR USD — manual buy, bypasses consensus.
+
+    Routes through the same shadow vs live branch as the autonomous loop:
+    - shadow_mode=True  → synthetic ledger entry only
+    - shadow_mode=False → execute_buy_with_stop submits to Oanda with
+                          attached stop. DB row uses actual fill price.
+    """
     if not _auth(update): return
     if len(context.args) < 2:
         await update.message.reply_text("Usage: /buy EUR/USD 1000")
@@ -1083,26 +1342,55 @@ async def cmd_buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     initial_stop_mult = cfg.get('ratchet', {}).get('initial_stop_mult', 2.0)
     stop_price = entry - (d['atr'] * initial_stop_mult)
     notional   = fx_math.position_notional_usd(sym, units, entry)
-    cash       = database.get_shadow_cash()
-    if notional > cash:
-        await update.message.reply_text(
-            f"⚠️ Insufficient shadow cash (${cash:,.2f}) for ${notional:,.2f} buy."
+    shadow_mode = cfg.get('oanda', {}).get('shadow_mode', True)
+
+    if shadow_mode:
+        cash = database.get_shadow_cash()
+        if notional > cash:
+            await update.message.reply_text(
+                f"⚠️ Insufficient shadow cash (${cash:,.2f}) for ${notional:,.2f} buy."
+            )
+            return
+
+        database.log_trade(sym, 'SHADOW BUY', entry, units, 'MANUAL OVERRIDE',
+                           'Manual user /buy (shadow mode)',
+                           position_size_usd=notional)
+        database.record_open_position(sym, entry, 'MANUAL OVERRIDE',
+                                      entry_atr=d['atr'], shares=units,
+                                      position_size_usd=notional)
+        database.update_shadow_stop(sym, stop_price)
+        database.adjust_shadow_cash(-notional)
+        await update.message.reply_html(
+            f"👻 <b>SHADOW MANUAL BUY</b>\n"
+            f"Pair: {sym}\n"
+            f"Units: {units:,} @ ${fx_math.fp(entry, sym)}\n"
+            f"Stop: ${fx_math.fp(stop_price, sym)}\n"
+            f"Notional: ${notional:,.2f}"
         )
         return
 
-    database.log_trade(sym, 'SHADOW BUY', entry, units, 'MANUAL OVERRIDE',
-                       'Manual user /buy (shadow mode)',
-                       position_size_usd=notional)
-    database.record_open_position(sym, entry, 'MANUAL OVERRIDE',
+    # ── LIVE manual buy ──
+    ok, fill_price, fee_usd = await asyncio.to_thread(
+        execution.execute_buy_with_stop, sym, units, stop_price,
+    )
+    if not ok:
+        await update.message.reply_text(
+            f"❌ LIVE BUY {sym} rejected by Oanda. See engine logs for details."
+        )
+        return
+    database.log_trade(sym, 'BUY', fill_price, units, 'MANUAL OVERRIDE',
+                       'Manual user /buy (live mode)',
+                       position_size_usd=notional, fee_usd=fee_usd)
+    database.record_open_position(sym, fill_price, 'MANUAL OVERRIDE',
                                   entry_atr=d['atr'], shares=units,
                                   position_size_usd=notional)
     database.update_shadow_stop(sym, stop_price)
-    database.adjust_shadow_cash(-notional)
     await update.message.reply_html(
-        f"👻 <b>SHADOW MANUAL BUY</b>\n"
+        f"🔴 <b>LIVE MANUAL BUY</b>\n"
         f"Pair: {sym}\n"
-        f"Units: {units:,} @ ${fx_math.fp(entry, sym)}\n"
-        f"Stop: ${fx_math.fp(stop_price, sym)}\n"
+        f"Units: {units:,} @ ${fx_math.fp(fill_price, sym)} "
+        f"(req ${fx_math.fp(entry, sym)})\n"
+        f"Stop: ${fx_math.fp(stop_price, sym)} · Fee: ${fee_usd:.2f}\n"
         f"Notional: ${notional:,.2f}"
     )
 

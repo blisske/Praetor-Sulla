@@ -1,7 +1,84 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-24 (+2) (Phase 2 infrastructure complete — Oanda broker adapter)
+> Last updated: 2026-05-24 (+3) (Phase 2.5 main.py live-path wiring complete)
+
+---
+
+## 2026-05-24 (+3) — Phase 2.5: main.py live-path wiring + reconciliation
+
+**Phase 2 deferred work picked up.** Phase 2 (+2) shipped the Oanda
+client + execution.py implementations + per-user creds + tests, but
+main.py was still hard-shadow — every autonomous BUY wrote `SHADOW BUY`
+to the DB and never called execute_buy_with_stop. This commit wires
+`shadow_mode` branching through main.py end-to-end so flipping
+`oanda.shadow_mode: false` in Config.yaml actually trades on Oanda.
+
+**Architectural decision (matches Corinthian + Doric pattern):**
+Oanda's server-side attached stop is **authoritative for stops**.
+Engine-side exit logic skips stop-checking in live mode and relies on
+a per-cycle reconciliation pass to detect closed positions. TP and
+ratchet remain engine-driven (engine decides → engine calls Oanda).
+
+**Wiring landed in main.py:**
+
+| Block | Function | Shadow path | Live path |
+|---|---|---|---|
+| **A** Stop hit | `_run_exit_engine` | unchanged | SKIP (reconcile catches it) |
+| **B** Partial TP | same | unchanged | DEFER (needs new oanda_client method) |
+| **C** Full TP | same | unchanged | `execute_take_profit` → SELL row with Oanda P&L + fee |
+| **D** HOLD_AND_TIGHTEN | same | DB stop | DB + `execute_ratchet_stop` |
+| **E** Trailing ratchet | same | DB stop | DB + `execute_ratchet_stop` |
+| **F** Pyramid leg | `_evaluate_pyramid_add` | SHADOW BUY ADD | Oanda fill FIRST, then DB leg (no phantom on reject) |
+| **G** Autonomous BUY | `_evaluate_entry` | SHADOW BUY | `execute_buy_with_stop` with attached stop, DB uses fill price not requested |
+| **H** Manual /buy | `cmd_buy` Telegram | SHADOW BUY | same as G |
+| **I** Kill switch | `cmd_confirm_kill` | unchanged | DEFER (non-critical; user can manually close via Oanda) |
+
+**New helper: `_reconcile_live_positions()`.** Runs at the top of
+`_run_exit_engine` in live mode. Queries Oanda's open positions, compares
+to DB, and for each DB position no longer on Oanda:
+  - Logs a `SELL (RECONCILED)` row using current market price as
+    approximate close price
+  - Approximate P&L noted in the verdict (exact P&L requires pulling
+    Oanda's transaction history — out of scope for Phase 2.5)
+  - Closes the DB row so the engine stops trying to manage a phantom
+  - Telegram notification with "Check Oanda for exact fill" footer
+
+**Failure semantics — all live paths return cleanly on Oanda error:**
+- BUY rejected: no DB row created, Telegram notifies, cycle continues
+- TP rejected: DB row not closed, will retry next cycle
+- Ratchet rejected: DB stop still updates (informational), Oanda stop
+  is stale (logged as warning)
+- Reconciliation skipped if client unavailable
+
+**Cash tracking gap (acknowledged):** in live mode, `adjust_shadow_cash`
+is NOT called. `shadow_cash` field becomes informational only — Oanda
+balance is authoritative. Dashboard will diverge until Phase 5 wires a
+periodic Oanda balance fetch into the equity-snapshot path.
+
+**Smoke-verified:** ionic-engine rebuilt cleanly. Boots in shadow mode
+(default), all 7 majors pulling real OHLCV from Oanda, consensus logic
+running. Live branches are reachable (no syntax errors, all imports
+resolve) but won't fire until a user sets `oanda.shadow_mode: false`.
+
+**Phase 2.5 status:** ✅ complete for entry + exit + ratchet + manual /buy.
+Deferred: partial-TP live path (needs `oanda_client.close_partial_position`),
+kill-switch live path (lower priority — user can close manually via Oanda
+web UI in an emergency), exact-P&L reconciliation (currently approximate).
+
+**Effective Ionic deployment readiness now:**
+- ✅ Phase 1 — scaffold
+- ✅ Phase 2 — Oanda adapter (client + execution)
+- ✅ Phase 2.5 — main.py live-path wiring (this commit)
+- ✅ Phase 3 — FX math (already done)
+- ✅ Phase 4 — Macro calendar (already done)
+- ⏳ Phase 5 — formal shadow contract audit + Telegram bot wire-up +
+              Oanda equity reconciliation
+- ⏳ Phase 6 — soak run + live gates (7-14 day, ≥5 closed trades, etc.)
+
+Ionic is now structurally trade-capable. A user with Oanda creds connected
++ `shadow_mode: false` would actually trade. Production-ready it is not
+(Phase 5 + 6 still pending); Trade-capable it is.
 
 ---
 
