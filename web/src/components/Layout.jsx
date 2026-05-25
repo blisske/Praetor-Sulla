@@ -20,7 +20,7 @@ const ORANGE    = '#F7931A'
 // = Ionic's brand color (vs Doric emerald, Corinthian gold).
 function FoundationMark({ size = 22 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 54 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="ionicGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%"   stopColor="#93C5FD" />
@@ -30,36 +30,34 @@ function FoundationMark({ size = 22 }) {
       </defs>
 
       {/* Abacus — flat slab on top */}
-      <rect x="4" y="3" width="46" height="3" fill="url(#ionicGrad)" />
+      <rect x="2" y="4" width="60" height="5" fill="url(#ionicGrad)" />
 
-      {/* Echinus — slight downward arc beneath the abacus */}
-      <path d="M 8 6 Q 27 11 46 6 L 46 7 Q 27 12 8 7 Z" fill="url(#ionicGrad)" opacity="0.85" />
+      {/* Capital body holding the volutes */}
+      <rect x="4" y="9" width="56" height="14" fill="url(#ionicGrad)" opacity="0.95" />
 
-      {/* Left volute — spiral that scrolls outward */}
-      <circle cx="12" cy="14" r="6" fill="url(#ionicGrad)" />
-      <path d="M 12 9 a 5 5 0 1 1 -0.1 0 M 12 11 a 3 3 0 1 0 0.1 0 M 13 14 a 1.2 1.2 0 1 1 -0.1 0"
-            stroke="#1D4ED8" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-      <circle cx="13" cy="14" r="0.9" fill="#1D4ED8" />
+      {/* Left volute — bold concentric circles, reads as scroll at small sizes */}
+      <circle cx="13" cy="16" r="8" fill="url(#ionicGrad)" />
+      <circle cx="13" cy="16" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="13" cy="16" r="2" fill="#1D4ED8" />
 
-      {/* Right volute — mirror of left */}
-      <circle cx="42" cy="14" r="6" fill="url(#ionicGrad)" />
-      <path d="M 42 9 a 5 5 0 1 0 0.1 0 M 42 11 a 3 3 0 1 1 -0.1 0 M 41 14 a 1.2 1.2 0 1 0 0.1 0"
-            stroke="#1D4ED8" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-      <circle cx="41" cy="14" r="0.9" fill="#1D4ED8" />
+      {/* Right volute — mirror */}
+      <circle cx="51" cy="16" r="8" fill="url(#ionicGrad)" />
+      <circle cx="51" cy="16" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="51" cy="16" r="2" fill="#1D4ED8" />
 
-      {/* Cushion between volutes (the capital body) */}
-      <rect x="18" y="11" width="18" height="8" fill="url(#ionicGrad)" />
+      {/* Necking */}
+      <rect x="18" y="24" width="28" height="2.5" fill="#1D4ED8" />
 
-      {/* Necking — thin ring separating capital from shaft */}
-      <rect x="16" y="19" width="22" height="2" fill="#1D4ED8" />
+      {/* Column shaft — narrower than the capital, fluted */}
+      <rect x="20" y="26.5" width="24" height="34" fill="url(#ionicGrad)" />
+      <line x1="24" y1="26.5" x2="24" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="28" y1="26.5" x2="28" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="32" y1="26.5" x2="32" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="36" y1="26.5" x2="36" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="40" y1="26.5" x2="40" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
 
-      {/* Column shaft — centered, fluted */}
-      <rect x="17" y="21" width="20" height="29" fill="url(#ionicGrad)" />
-      <line x1="20" y1="21" x2="20" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="24" y1="21" x2="24" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="27" y1="21" x2="27" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="30" y1="21" x2="30" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="34" y1="21" x2="34" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
+      {/* Base flare */}
+      <rect x="18" y="60.5" width="28" height="2.5" fill="url(#ionicGrad)" />
     </svg>
   )
 }

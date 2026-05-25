@@ -11,15 +11,17 @@ const NAVY      = '#0b1526'
 // Ionic is the "scholar's" order — graceful, balanced, intermediate
 // between Doric's plainness and Corinthian's ornament. Matches FX:
 // macro-driven, deliberate, less volatile than crypto.
-// Ionic column capital — the signature feature is the pair of spiral
-// volutes (ammonite scrolls) that sit on the abacus. The previous
-// rendering used two large concentric circles flanking the shaft, which
-// at small sizes read as "robot eyes" not "Ionic capital." This version
-// places proper spiral paths ON the abacus, centered closer to the
-// column shaft so the whole mark reads as one shape.
+// Ionic column capital — rendering strategy chosen for readability at
+// 22-44px:
+//   - Wide abacus + wide echinus = a clear "capital cap" silhouette.
+//   - Volutes drawn as bold concentric circles flush against the cap
+//     edges — at small sizes they read as ammonite scrolls.
+//   - Column shaft narrower than the capital, with clear flutes.
+// The earlier attempt used <path> spirals that collapsed visually below
+// ~60px; this version uses plain filled shapes that render crisply.
 function FoundationMark({ size = 28 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 54 54" fill="none" style={{ flexShrink: 0 }} xmlns="http://www.w3.org/2000/svg">
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ flexShrink: 0 }} xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="ionicGradLogin" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%"   stopColor="#93C5FD" />
@@ -28,40 +30,36 @@ function FoundationMark({ size = 28 }) {
         </linearGradient>
       </defs>
 
-      {/* Abacus — flat slab on top */}
-      <rect x="4" y="3" width="46" height="3" fill="url(#ionicGradLogin)" />
+      {/* Abacus — flat slab on top, full width */}
+      <rect x="2" y="4" width="60" height="5" fill="url(#ionicGradLogin)" />
 
-      {/* Echinus — slight downward arc beneath the abacus (the
-          "egg-and-dart" decoration zone in a classical Ionic capital) */}
-      <path d="M 8 6 Q 27 11 46 6 L 46 7 Q 27 12 8 7 Z" fill="url(#ionicGradLogin)" opacity="0.85" />
+      {/* Echinus + volute body — wide horizontal band where the volutes sit */}
+      <rect x="4" y="9" width="56" height="14" fill="url(#ionicGradLogin)" opacity="0.95" />
 
-      {/* Left volute — spiral that scrolls outward.
-          Center at (12, 14), 3 nested arcs of decreasing radius. */}
-      <circle cx="12" cy="14" r="6" fill="url(#ionicGradLogin)" />
-      <path d="M 12 9 a 5 5 0 1 1 -0.1 0 M 12 11 a 3 3 0 1 0 0.1 0 M 13 14 a 1.2 1.2 0 1 1 -0.1 0"
-            stroke="#1D4ED8" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-      <circle cx="13" cy="14" r="0.9" fill="#1D4ED8" />
+      {/* Left volute — bold concentric circles ON the cap, flush to the
+          left edge. Reads as a scroll at small sizes. */}
+      <circle cx="13" cy="16" r="8" fill="url(#ionicGradLogin)" />
+      <circle cx="13" cy="16" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="13" cy="16" r="2" fill="#1D4ED8" />
 
-      {/* Right volute — mirror of left, scrolls outward to the right.
-          Center at (42, 14). */}
-      <circle cx="42" cy="14" r="6" fill="url(#ionicGradLogin)" />
-      <path d="M 42 9 a 5 5 0 1 0 0.1 0 M 42 11 a 3 3 0 1 1 -0.1 0 M 41 14 a 1.2 1.2 0 1 0 0.1 0"
-            stroke="#1D4ED8" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-      <circle cx="41" cy="14" r="0.9" fill="#1D4ED8" />
+      {/* Right volute — mirror */}
+      <circle cx="51" cy="16" r="8" fill="url(#ionicGradLogin)" />
+      <circle cx="51" cy="16" r="5" fill="none" stroke="#1D4ED8" strokeWidth="2" />
+      <circle cx="51" cy="16" r="2" fill="#1D4ED8" />
 
-      {/* Cushion between volutes (the actual capital body) */}
-      <rect x="18" y="11" width="18" height="8" fill="url(#ionicGradLogin)" />
+      {/* Necking — thin dark band separating capital from shaft */}
+      <rect x="18" y="24" width="28" height="2.5" fill="#1D4ED8" />
 
-      {/* Necking — thin ring separating capital from shaft */}
-      <rect x="16" y="19" width="22" height="2" fill="#1D4ED8" />
+      {/* Column shaft — narrower than the capital, fluted */}
+      <rect x="20" y="26.5" width="24" height="34" fill="url(#ionicGradLogin)" />
+      <line x1="24" y1="26.5" x2="24" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="28" y1="26.5" x2="28" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="32" y1="26.5" x2="32" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="36" y1="26.5" x2="36" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
+      <line x1="40" y1="26.5" x2="40" y2="60.5" stroke="#1D4ED8" strokeWidth="0.9" opacity="0.55" />
 
-      {/* Column shaft — centered, fluted */}
-      <rect x="17" y="21" width="20" height="29" fill="url(#ionicGradLogin)" />
-      <line x1="20" y1="21" x2="20" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="24" y1="21" x2="24" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="27" y1="21" x2="27" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="30" y1="21" x2="30" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
-      <line x1="34" y1="21" x2="34" y2="50" stroke="#1D4ED8" strokeWidth="0.8" opacity="0.55" />
+      {/* Base flare at bottom (optional polish) */}
+      <rect x="18" y="60.5" width="28" height="2.5" fill="url(#ionicGradLogin)" />
     </svg>
   )
 }
