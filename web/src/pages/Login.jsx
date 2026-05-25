@@ -41,6 +41,79 @@ function FoundationMark({ size = 28 }) {
   )
 }
 
+// Multi-pair chart trace — seven smooth Bezier curves in graduated blues,
+// one per FX major. Two prominent lines (EUR/USD, USD/JPY) get a soft
+// glow + a "current price" dot at the right edge. Layered BEHIND the
+// CurrencyGrid text labels so both render together: the labels name the
+// pair, the curves show the brand-blue "tape" rolling underneath.
+function MultiPairChartTrace() {
+  const lines = [
+    // Back layer — deepest blues, lowest opacity. The macro tape.
+    { name: 'NZD/USD', d: 'M 0 38 C 18 36, 32 42, 50 39 S 78 33, 100 30',
+      color: '#1E3A8A', width: 0.6, opacity: 0.30, prominent: false },
+    { name: 'USD/CAD', d: 'M 0 72 C 16 68, 30 73, 48 70 S 76 78, 100 75',
+      color: '#1E40AF', width: 0.7, opacity: 0.35, prominent: false },
+    // Mid layer — deep but readable blues.
+    { name: 'AUD/USD', d: 'M 0 56 C 14 60, 28 51, 44 58 S 70 65, 100 60',
+      color: '#2563EB', width: 0.9, opacity: 0.50, prominent: false },
+    { name: 'USD/CHF', d: 'M 0 28 C 18 30, 36 24, 54 28 S 80 35, 100 32',
+      color: '#3B82F6', width: 0.9, opacity: 0.55, prominent: false },
+    // Front layer — brand-blue mid-tone. The pairs in motion.
+    { name: 'GBP/USD', d: 'M 0 64 C 14 58, 30 70, 48 62 S 76 50, 100 45',
+      color: '#60A5FA', width: 1.1, opacity: 0.75, prominent: false },
+    // Hero layer — the two prominent lines with glow + endpoint dots.
+    { name: 'EUR/USD', d: 'M 0 48 C 18 44, 36 52, 56 44 S 82 38, 100 33',
+      color: '#06B6D4', width: 1.5, opacity: 0.85, prominent: true },
+    { name: 'USD/JPY', d: 'M 0 18 C 16 22, 30 16, 48 20 S 76 12, 100 18',
+      color: '#3B82F6', width: 1.5, opacity: 0.90, prominent: true },
+  ]
+  const endpoints = {
+    'NZD/USD': { x: 100, y: 30 }, 'USD/CAD': { x: 100, y: 75 },
+    'AUD/USD': { x: 100, y: 60 }, 'USD/CHF': { x: 100, y: 32 },
+    'GBP/USD': { x: 100, y: 45 }, 'EUR/USD': { x: 100, y: 33 },
+    'USD/JPY': { x: 100, y: 18 },
+  }
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none"
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
+                pointerEvents: 'none' }}>
+      <defs>
+        <filter id="line-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="0.8" result="blurred" />
+          <feMerge>
+            <feMergeNode in="blurred" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      {lines.map((line, i) => {
+        const ep = endpoints[line.name] || { x: 100, y: 50 }
+        return (
+          <g key={i} opacity={line.opacity}>
+            <path
+              d={line.d}
+              stroke={line.color}
+              strokeWidth={line.width}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+              filter={line.prominent ? 'url(#line-glow)' : undefined}
+            />
+            {line.prominent && (
+              <>
+                <circle cx={ep.x} cy={ep.y} r={1.2} fill={line.color}
+                        filter="url(#line-glow)" />
+                <circle cx={ep.x} cy={ep.y} r={0.5} fill="#fff" opacity={0.9} />
+              </>
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
 // Decorative currency tickers in the right panel — FX vibe (vs Doric's
 // candlesticks for equities, Corinthian's coin pile for crypto).
 function CurrencyGrid() {
@@ -340,6 +413,10 @@ export default function Login() {
           background: `radial-gradient(ellipse at 50% 100%, rgba(59,130,246,0.18) 0%, transparent 70%)`,
           pointerEvents: 'none',
         }} />
+        {/* Chart-trace lines render BEHIND the text labels so the pair
+            names sit on top of the curves. Order matters: this must come
+            before <CurrencyGrid /> in the JSX tree. */}
+        <MultiPairChartTrace />
         <CurrencyGrid />
         <div style={{
           position: 'absolute', top: '36px', left: '40px',
