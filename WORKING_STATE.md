@@ -1,7 +1,48 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-25 (bug-hunt sprint — schema-seeder hardening)
+> Last updated: 2026-05-25 (+4) (bug-hunt sweep — 5 multi-tenant bugs fixed)
+
+---
+
+## 2026-05-25 (+4) — Bug-hunt sweep: 5 multi-tenant bugs caught + fixed
+
+The bug-hunt harness in `foundation/shared/testing/` got widened beyond
+the original happy_path to cross_tenant_isolation, totp_e2e,
+admin_permission, ws_isolation, and per_tenant_config suites. Five
+multi-tenant bugs surfaced — all the same structural pattern: code
+gated by `legacy_username == "admin"` or `== DEMO_USERNAME` instead of
+`user.is_admin` from global.db. Since every non-demo signup gets
+`legacy_username = "admin"`, the gates were structurally incapable of
+distinguishing operator from SaaS tenant.
+
+| # | Sev | Bug | Fix commit |
+|---|---|---|---|
+| 2 | CRIT | WS broadcast scoped by username → operator pending_events leaked to every tenant's /ws in real time | `2097713` |
+| 3 | CRIT | /api/config writable + readable by any tenant | `42da616` |
+| 4 | HIGH | /api/restart triggerable by any tenant → DoS via restart-loop | `5533181` |
+| 5 | MED | /api/watchlist leaked operator's active_symbols | `3c43f92` |
+| 6 | LOW-MED | /api/equity + WS tick used operator's risk.initial_capital + drawdown thresholds | `20dc23b` |
+
+Fixes #2–#5 all swap the offending dependency to `get_current_admin`
+from `shared.api_auth`. #2 adds user_id to socket tagging so broadcasts
+can scope by `only_user_id=1`. #6 adds `_per_user_config_path(uid)` +
+`load_engine_config_for(ctx)` helpers mirroring `get_db_for(ctx)`.
+
+**Regression test coverage in `foundation/shared/testing/`:**
+- happy_path.py (24 steps), cross_tenant_isolation.py (6),
+  totp_e2e.py (15), admin_permission.py (17), ws_isolation.py (4),
+  per_tenant_config.py (4) — 70 checks per bot, all green.
+
+**Known remaining functional gaps (not security bugs):**
+- `_drain_pending_events` is operator-only (`only_user_id=1`). When
+  real per-user engines start running they'll write to per-user
+  pending_events but the drain task won't read those. Tenants will get
+  only the 5s WS heartbeat, no real-time fill events. Address when
+  per-user engines are actually running.
+- Per-tenant config WRITE: tenants can't POST /api/config (admin-gated
+  now). Future feature.
+- Per-user engine boot not yet verified end-to-end.
 
 ---
 
