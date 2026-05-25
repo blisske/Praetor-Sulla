@@ -1,7 +1,37 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-24 (+4) (parity sprint — Ionic at code-parity with Corinthian/Doric)
+> Last updated: 2026-05-25 (bug-hunt sprint — schema-seeder hardening)
+
+---
+
+## 2026-05-25 — Bug-hunt sprint: schema-seeder hardening (precautionary)
+
+Bug-hunt sprint built a synthetic-user harness in `foundation/shared/
+testing/` (TestUser context manager + happy_path.py + cross_tenant_
+isolation.py) and used it to find a multi-tenant data leak in **Doric**
+(operator's 450 trades + 66 login_attempts visible to every new signup).
+
+Ionic's template was verified clean (0 rows in every table) so no data
+scrub needed here — but **the same hardening was applied to
+`_ensure_per_user_db_schema()` in `api/main.py`** for parity and
+defense-in-depth. The function now counts rows across all tables in the
+per-user DB; if non-zero, it logs an `ERROR` and `DELETE`s in-place
+before returning. Future template contamination would self-heal on first
+API hit instead of leaking operator data to per-user views.
+
+Also separate from this sprint but bundled in the same session: a
+visual-only revert of `web/src/pages/Login.jsx` + `Layout.jsx` to commit
+`44a53d6` (2026-05-21 state) after several rounds of bad logo edits.
+The takeaway: when the operator says "put it back," go straight to
+`git checkout <commit> -- <file>` instead of trying to recreate by hand.
+
+Verified end-to-end: `happy_path ionic` = 14/14 PASS, `cross_tenant_
+isolation ionic` = 6/6 PASS.
+
+**Commits:**
+- `693a427` — schema-seeder hardening
+- `e739a78` — Login.jsx + Layout.jsx restore
 
 ---
 
