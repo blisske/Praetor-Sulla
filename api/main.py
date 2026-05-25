@@ -197,6 +197,43 @@ class AuthCtx:
     legacy_username: str
 
 
+def _per_user_config_path(user_id: int) -> Path:
+    """Where a multi-tenant user's per-user Config.yaml lives on the
+    bind-mounted data dir. Provisioner copies the template here at
+    signup. Mirrors _per_user_db_path."""
+    return REAL_DB.parent / "users" / str(user_id) / "Config.yaml"
+
+
+def load_engine_config_for(ctx: 'AuthCtx') -> dict:
+    """Return the engine config dict belonging to the auth context.
+
+    Routing mirrors get_db_for(ctx):
+      user_id=1 (operator)   → operator's /app/data/Config.yaml
+      user_id=2 (demo)       → operator's config (demo shares it)
+      user_id>=3 (tenant)    → /app/data/users/{user_id}/Config.yaml
+
+    Falls back to operator's config if the per-user file is missing
+    (provisioner race) or unreadable (corrupt yaml). Availability over
+    isolation in that narrow window.
+
+    Added 2026-05-25 — tenant /api/equity + WS tick were displaying
+    operator's risk.initial_capital and drawdown thresholds.
+    """
+    if ctx.user_id <= 2:
+        return config_manager.load_engine_config()
+    per_user_path = _per_user_config_path(ctx.user_id)
+    if not per_user_path.exists():
+        return config_manager.load_engine_config()
+    try:
+        from ruamel.yaml import YAML
+        yaml = YAML()
+        with open(per_user_path, 'r') as f:
+            data = yaml.load(f)
+        return dict(data) if data else {}
+    except Exception:
+        return config_manager.load_engine_config()
+
+
 def _per_user_db_path(user_id: int) -> Path:
     """Where a multi-tenant user's per-user ionic.db lives on the
     bind-mounted data dir."""
@@ -622,7 +659,10 @@ async def get_equity(ctx: AuthCtx = Depends(get_auth_ctx)):
         peak = conn.execute(
             "SELECT peak FROM equity_peak WHERE id=1"
         ).fetchone()
-        config = config_manager.load_engine_config()
+        # Per-tenant config — was leaking operator's initial_capital +
+        # drawdown thresholds into every tenant's dashboard until the
+        # 2026-05-25 bug-hunt caught it.
+        config = load_engine_config_for(ctx)
         cfg_initial = config.get("risk", {}).get("initial_capital", 25000.0)
         initial, shadow_equity, pnl = _compute_shadow_equity(conn, cfg_initial)
         peak_equity = float(peak[0]) if peak and peak[0] else initial
@@ -952,7 +992,8 @@ async def websocket_endpoint(ws: WebSocket, token: str = ""):
         while True:
             conn = get_db_for(ws_ctx)
             try:
-                config    = config_manager.load_engine_config()
+                # Per-tenant config (ws_ctx) — same fix as /api/equity.
+                config    = load_engine_config_for(ws_ctx)
                 cfg_init  = config.get("risk", {}).get("initial_capital", 25000.0)
                 initial, shadow_equity, pnl = _compute_shadow_equity(conn, cfg_init)
                 positions = conn.execute("SELECT * FROM open_positions").fetchall()
