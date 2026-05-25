@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth.jsx'
-import { LayoutDashboard, History, FlaskConical, LogOut, BarChart2, Settings, SlidersHorizontal, Menu, X, Sun, Moon, BookOpen, UserCog, ShieldCheck, FileText } from 'lucide-react'
+import { LayoutDashboard, History, FlaskConical, LogOut, BarChart2, Settings, SlidersHorizontal, Menu, X, Sun, Moon, BookOpen, UserCog, ShieldCheck } from 'lucide-react'
 import { useTheme } from '../lib/theme.jsx'
 import DemoModeBanner from './DemoModeBanner.jsx'
 import TosReacceptModal from './TosReacceptModal.jsx'
 import ProvisionGate from './ProvisionGate.jsx'
 
-const BLUE      = '#3B82F6'
-const BLUE_LITE = '#60A5FA'
+const GOLD      = '#c8922a'
+const GOLD_LITE = '#e8b84b'
 const ORANGE    = '#F7931A'
 
 // Ionic column capital — abacus + echinus + necking + fluted shaft.
@@ -50,13 +50,12 @@ function FoundationMark({ size = 22 }) {
 
 // Trading-app nav (top of sidebar — bot operations)
 const nav = [
-  { to: '/',             icon: LayoutDashboard,   label: 'Dashboard' },
-  { to: '/trades',       icon: History,           label: 'Trades'    },
-  { to: '/tuning',       icon: FlaskConical,      label: 'Tuning'    },
-  { to: '/market',       icon: BarChart2,         label: 'Market'    },
-  { to: '/config',       icon: SlidersHorizontal, label: 'Config'    },
-  { to: '/reports/tax',  icon: FileText,          label: 'Tax'       },
-  { to: '/guide',        icon: BookOpen,          label: 'Guide'     },
+  { to: '/',        icon: LayoutDashboard,   label: 'Dashboard' },
+  { to: '/trades',  icon: History,           label: 'Trades'    },
+  { to: '/tuning',  icon: FlaskConical,      label: 'Tuning'    },
+  { to: '/market',  icon: BarChart2,         label: 'Market'    },
+  { to: '/config',  icon: SlidersHorizontal, label: 'Config'    },
+  { to: '/guide',   icon: BookOpen,          label: 'Guide'     },
 ]
 
 // Account-level nav (bottom of sidebar — user profile + broker + mode)
@@ -162,11 +161,11 @@ function Sidebar({ onClose, dark, toggle }) {
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px',
                     borderRadius: 8,
-                    background: 'rgba(59,130,246,0.15)',
-                    color: BLUE,
+                    background: 'rgba(200,146,42,0.15)',
+                    color: GOLD,
                     fontWeight: 600,
                     fontSize: 14,
-                    borderLeft: `3px solid ${BLUE}`,
+                    borderLeft: `3px solid ${GOLD}`,
                     paddingLeft: 9,
                   } : {
                     display: 'flex', alignItems: 'center', gap: 12,
@@ -205,11 +204,11 @@ function Sidebar({ onClose, dark, toggle }) {
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px',
                     borderRadius: 8,
-                    background: 'rgba(59,130,246,0.15)',
-                    color: BLUE,
+                    background: 'rgba(200,146,42,0.15)',
+                    color: GOLD,
                     fontWeight: 600,
                     fontSize: 14,
-                    borderLeft: `3px solid ${BLUE}`,
+                    borderLeft: `3px solid ${GOLD}`,
                     paddingLeft: 9,
                   } : {
                     display: 'flex', alignItems: 'center', gap: 12,
