@@ -129,6 +129,108 @@ function ConnectedBadge({ scope, environment }) {
 }
 
 
+// ─── Platform walkthrough ───────────────────────────────────────────────
+// Step-by-step navigation to find Oanda's personal access token page.
+// Oanda quirk: tokens are environment-bound (practice OR live) and the
+// account_id format differs between environments. The walkthrough makes
+// this explicit since "wrong environment for this token" is the most
+// common Ionic connection error.
+
+function OandaWalkthrough() {
+  const [open, setOpen] = useState(true)
+  return (
+    <div style={{
+      background: 'rgba(59,130,246,0.05)',
+      border: '1px solid rgba(59,130,246,0.25)',
+      borderRadius: '0.4rem',
+      padding: '0.85rem 1rem',
+      fontSize: '0.78rem',
+      lineHeight: 1.6,
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', background: 'transparent', border: 'none',
+          padding: 0, cursor: 'pointer', textAlign: 'left',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}
+      >
+        <span style={{
+          fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em',
+          textTransform: 'uppercase', color: '#93c5fd',
+        }}>
+          Step 1: Find Oanda's API token page — walkthrough
+        </span>
+        <span style={{ color: '#93c5fd', fontSize: '0.75rem', fontWeight: 600 }}>
+          {open ? '▾ hide' : '▸ show'}
+        </span>
+      </button>
+
+      {open && (
+        <ol style={{
+          margin: '0.8rem 0 0', paddingLeft: '1.4rem',
+          color: 'var(--text-primary)', display: 'flex', flexDirection: 'column', gap: '0.55rem',
+        }}>
+          <li>
+            <strong>Sign up / log in to Oanda.</strong> Practice accounts are free, fully featured,
+            and never expire — use this to start. Live accounts require funding + KYC.
+            <ul style={{ margin: '0.3rem 0 0 0', paddingLeft: '1.2rem', listStyle: 'circle' }}>
+              <li>
+                Practice signup:{' '}
+                <a href="https://www.oanda.com/account/login" target="_blank" rel="noopener noreferrer"
+                   style={{ color: '#60A5FA', textDecoration: 'underline' }}>
+                  oanda.com (use "Create a free practice account")
+                </a>
+              </li>
+              <li>
+                Live account: same login, but you must complete KYC + fund first.
+              </li>
+            </ul>
+          </li>
+          <li>
+            Go to the <strong>Manage API Access</strong> page.{' '}
+            From your account dashboard: top-right profile menu →{' '}
+            <strong>My Account</strong> → <strong>Manage API Access</strong>. Or jump straight there:{' '}
+            <a href="https://www.oanda.com/account/tpa/personal_token" target="_blank" rel="noopener noreferrer"
+               style={{ color: '#60A5FA', textDecoration: 'underline' }}>
+              oanda.com/account/tpa/personal_token
+            </a>.
+          </li>
+          <li>
+            <strong>⚠️ Practice vs Live is per-account, not per-token.</strong>{' '}
+            The Manage API Access page is the same URL for both, but the token it generates is
+            scoped to the currently-selected account. Make sure the account selector at the top
+            shows the environment you want before generating.
+          </li>
+          <li>
+            Click <strong>Generate</strong> next to "Personal Access Token". Solve the captcha
+            if prompted.
+          </li>
+          <li>
+            <strong>⚠️ Copy the token NOW.</strong> Oanda shows it once on this screen. If you
+            close without copying, you'll have to revoke and regenerate.
+          </li>
+          <li>
+            <strong>Grab your Account ID.</strong> In the same dashboard, go to{' '}
+            <strong>My Account</strong> → <strong>My Funds</strong>{' '}
+            (or the top-right account selector). Your Account ID looks like{' '}
+            <code style={{ background: 'var(--bg-elevated)', padding: '0.05rem 0.3rem', borderRadius: 3 }}>101-001-12345678-001</code>{' '}
+            (practice) or{' '}
+            <code style={{ background: 'var(--bg-elevated)', padding: '0.05rem 0.3rem', borderRadius: 3 }}>001-001-12345678-001</code>{' '}
+            (live) — the leading digits ("101" practice vs "001" live) tell you which environment.
+          </li>
+          <li>
+            Come back here, complete the safety check in Step 2, pick the matching environment
+            (Practice / Live) in Step 3, and paste both the token and Account ID.
+          </li>
+        </ol>
+      )}
+    </div>
+  )
+}
+
+
 function PasteForm({ existing, onConnected }) {
   const { user } = useAuth()
   const isDemo = !!user?.is_demo
@@ -205,7 +307,10 @@ function PasteForm({ existing, onConnected }) {
           </div>
         )}
 
-        {/* STEP 1: SECURITY GUIDANCE + MANDATORY ACK */}
+        {/* STEP 1: NAVIGATION WALKTHROUGH */}
+        <OandaWalkthrough />
+
+        {/* STEP 2: SECURITY GUIDANCE + MANDATORY ACK */}
         <div style={{
           background: 'rgba(220,38,38,0.07)',
           border: '1px solid rgba(220,38,38,0.30)',
@@ -218,7 +323,7 @@ function PasteForm({ existing, onConnected }) {
             fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em',
             textTransform: 'uppercase', color: '#fca5a5', marginBottom: '0.5rem',
           }}>
-            Step 1: Generate your token on Oanda — read before generating
+            Step 2: Understand the security model — read before generating
           </div>
           <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--text-primary)' }}>
             <li>
@@ -277,7 +382,7 @@ function PasteForm({ existing, onConnected }) {
           </label>
         </div>
 
-        {/* STEP 2: ENVIRONMENT PICKER + PASTE FORM */}
+        {/* STEP 3: ENVIRONMENT PICKER + PASTE FORM */}
         <div style={{
           opacity: securityAcked ? 1 : 0.35,
           pointerEvents: securityAcked ? 'auto' : 'none',
@@ -285,6 +390,13 @@ function PasteForm({ existing, onConnected }) {
           display: 'flex', flexDirection: 'column', gap: '0.85rem',
           paddingTop: '0.3rem',
         }}>
+          <div style={{
+            fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em',
+            textTransform: 'uppercase', color: 'var(--text-muted)',
+            marginBottom: '0.1rem',
+          }}>
+            Step 3: Pick environment + paste below
+          </div>
           {!securityAcked && (
             <p style={{ fontSize: '0.72rem', color: '#fbbf24', margin: 0, fontStyle: 'italic' }}>
               ⬆ Check the box above to enable the paste form.
