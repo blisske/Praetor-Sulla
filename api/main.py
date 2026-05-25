@@ -52,8 +52,8 @@ sys.path.insert(0, str(BASE_DIR))
 import config_manager
 import execution
 # Multi-tenant SaaS modules (live as of 2026-05-23 cutover)
-from core import auth as core_auth
-from core.auth import AuthError
+from shared import auth as core_auth
+from shared.auth import AuthError
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Foundation Ionic API", version="2.0.0")
@@ -62,13 +62,13 @@ app = FastAPI(title="Foundation Ionic API", version="2.0.0")
 # Legacy env-hash /api/auth/login retired in this cutover — both operator
 # (user_id=1) and demo (user_id=2) authenticate via the shared
 # foundation/data/global.db now.
-from api.auth     import router as _auth_router      # noqa: E402 (after sys.path)
+from shared.api_auth import router as _auth_router      # noqa: E402 (after sys.path)
 from api.byok     import router as _byok_router      # noqa: E402 (Oanda)
 from api.mode     import router as _mode_router      # noqa: E402
 from api.admin    import router as _admin_router     # noqa: E402
 from api.demo     import router as _demo_router      # noqa: E402 (public no-auth)
 from api.freeze   import router as _freeze_router    # noqa: E402 (user-side kill switch)
-from api.legal    import router as _legal_router     # noqa: E402 (public no-auth — ToS + Privacy)
+from shared.legal import router as _legal_router     # noqa: E402 (public no-auth — ToS + Privacy)
 from api.risk     import router as _risk_router      # noqa: E402 (user-settable risk caps)
 from api.totp     import router as _totp_router      # noqa: E402 (2FA enrollment + mgmt)
 from api.provision import router as _provision_router # noqa: E402 (click-to-provision)

@@ -17,6 +17,9 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+# Anti-regression lint: fail the build if a stale single-tenant localStorage
+# token key sneaks back in. See scripts/check-token-key.sh for the bug history.
+RUN sh scripts/check-token-key.sh
 # Vite reads VITE_* env vars at build time. If you need to bake API URLs into
 # the bundle, pass them as build args here. For now the SPA resolves /api and
 # /ws against window.location — nginx (next stage) proxies those to anton-api.

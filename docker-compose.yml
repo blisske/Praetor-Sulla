@@ -33,12 +33,17 @@ services:
       HEARTBEAT_PATH:     /app/data/.engine_heartbeat
       LMSTUDIO_BASE_URL:  ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
       PYTHONUNBUFFERED:   "1"
+      # PYTHONPATH lets `from shared.X` resolve the bind-mounted shared lib
+      # at /app/shared — see foundation/shared/ on host.
+      PYTHONPATH:         "/app"
       TZ:                 ${TZ:-America/Denver}
     volumes:
       # SQLite + Config.yaml + restart flag + heartbeat all live in one
       # shared mount so the API container can see them too. Config.yaml
       # being on the bind mount means edits survive image rebuilds.
       - ${IONIC_DATA_DIR:-./data}:/app/data
+      # Foundation shared library (auth / broker_crypto / api routers).
+      - ${FOUNDATION_SHARED_DIR:-/home/blisske/swarm/foundation/shared}:/app/shared:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -76,11 +81,14 @@ services:
       LMSTUDIO_BASE_URL:  ${LMSTUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
       CORS_ORIGINS:       ${IONIC_CORS_ORIGINS:-http://localhost,http://192.168.0.135,https://ionic.foundationbots.com,https://ionic.blisske.hopto.org,https://sulla.blisske.hopto.org}
       PYTHONUNBUFFERED:   "1"
+      PYTHONPATH:         "/app"
       TZ:                 ${TZ:-America/Denver}
     volumes:
       - ${IONIC_DATA_DIR:-./data}:/app/data
       # Shared cross-bot identity DB — see GLOBAL_DB_PATH above
       - ${FOUNDATION_DATA_DIR:-/home/blisske/swarm/foundation/data}:/app/foundation
+      # Foundation shared library (see engine block for rationale)
+      - ${FOUNDATION_SHARED_DIR:-/home/blisske/swarm/foundation/shared}:/app/shared:ro
     ports:
       # Loopback-only publish — the API isn't reachable from the LAN
       # (Traefik fronts the web container, which proxies to API internally).

@@ -31,7 +31,7 @@ def _setup_test_env(db_path: str) -> None:
     import init_global_db
     init_global_db.init_global_db(db_path, verbose=False)
 
-    from core import auth as core_auth
+    from shared import auth as core_auth
     core_auth.GLOBAL_DB_PATH = db_path
     core_auth.JWT_SECRET_KEY = os.environ["API_SECRET_KEY"]
     core_auth.JWT_EXPIRY_DAYS = 7
@@ -53,7 +53,7 @@ def _truncate_all(db_path: str) -> None:
 
 
 def _seed_user(email="alice@x.com", password="longenoughpassword"):
-    from core import auth as core_auth
+    from shared import auth as core_auth
     user_id = core_auth.create_user(email=email, password=password, is_admin=False)
     return user_id
 
@@ -89,14 +89,14 @@ class TotpHelperTests(unittest.TestCase):
     # ── generate / verify ──────────────────────────────────────────────
 
     def test_generate_secret_is_base32(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         # base32 alphabet = A-Z, 2-7
         self.assertGreaterEqual(len(secret), 16)
         self.assertTrue(all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" for c in secret))
 
     def test_provisioning_uri_format(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         uri = core_auth.totp_provisioning_uri(secret, account_label="alice@x.com")
         self.assertTrue(uri.startswith("otpauth://totp/"))
@@ -106,18 +106,18 @@ class TotpHelperTests(unittest.TestCase):
 
     def test_verify_correct_code(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         current_code = pyotp.TOTP(secret).now()
         self.assertTrue(core_auth.verify_totp_code(secret, current_code))
 
     def test_verify_wrong_code(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         self.assertFalse(core_auth.verify_totp_code(secret, "000000"))
 
     def test_verify_malformed_codes(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         self.assertFalse(core_auth.verify_totp_code(secret, ""))
         self.assertFalse(core_auth.verify_totp_code(secret, "abcdef"))
@@ -128,11 +128,11 @@ class TotpHelperTests(unittest.TestCase):
     # ── enrollment lifecycle ──────────────────────────────────────────
 
     def test_user_has_totp_false_initially(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         self.assertFalse(core_auth.user_has_totp(self.user_id))
 
     def test_stash_pending_secret_does_not_enable(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         # Pending secret is set but user is NOT enabled yet
@@ -141,7 +141,7 @@ class TotpHelperTests(unittest.TestCase):
 
     def test_confirm_enrollment_flips_enabled(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         codes = core_auth.confirm_totp_enrollment(
@@ -154,7 +154,7 @@ class TotpHelperTests(unittest.TestCase):
             self.assertEqual(c[4], "-")
 
     def test_confirm_with_bad_code_raises(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         with self.assertRaises(core_auth.AuthError):
@@ -164,7 +164,7 @@ class TotpHelperTests(unittest.TestCase):
 
     def test_stash_refuses_when_already_enrolled(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         core_auth.confirm_totp_enrollment(self.user_id, pyotp.TOTP(secret).now())
@@ -174,7 +174,7 @@ class TotpHelperTests(unittest.TestCase):
 
     def test_disable_clears_everything(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         core_auth.confirm_totp_enrollment(self.user_id, pyotp.TOTP(secret).now())
@@ -184,7 +184,7 @@ class TotpHelperTests(unittest.TestCase):
         self.assertEqual(core_auth.count_active_recovery_codes(self.user_id), 0)
 
     def test_disable_idempotent(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.disable_totp(self.user_id)
         core_auth.disable_totp(self.user_id)  # no error
 
@@ -193,14 +193,14 @@ class TotpHelperTests(unittest.TestCase):
     def _enroll(self):
         """Helper: enroll the seeded user and return (secret, recovery_codes)."""
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         codes = core_auth.confirm_totp_enrollment(self.user_id, pyotp.TOTP(secret).now())
         return secret, codes
 
     def test_recovery_code_verifies_once(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         _, codes = self._enroll()
         first = codes[0]
         self.assertTrue(core_auth.consume_recovery_code(self.user_id, first))
@@ -208,7 +208,7 @@ class TotpHelperTests(unittest.TestCase):
         self.assertFalse(core_auth.consume_recovery_code(self.user_id, first))
 
     def test_recovery_code_accepts_formatting_variants(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         _, codes = self._enroll()
         # Code is "abcd-efgh" — accept "ABCDEFGH", "abcdefgh", "abcd efgh"
         first = codes[1]
@@ -216,19 +216,19 @@ class TotpHelperTests(unittest.TestCase):
         self.assertTrue(core_auth.consume_recovery_code(self.user_id, canonical.upper()))
 
     def test_recovery_code_wrong_fails(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         self._enroll()
         self.assertFalse(core_auth.consume_recovery_code(self.user_id, "wxyz-0000"))
 
     def test_count_active_decrements_on_use(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         _, codes = self._enroll()
         self.assertEqual(core_auth.count_active_recovery_codes(self.user_id), 10)
         core_auth.consume_recovery_code(self.user_id, codes[0])
         self.assertEqual(core_auth.count_active_recovery_codes(self.user_id), 9)
 
     def test_regenerate_wipes_old_codes(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         _, original = self._enroll()
         new = core_auth.regenerate_recovery_codes(self.user_id)
         self.assertEqual(len(new), 10)
@@ -238,12 +238,12 @@ class TotpHelperTests(unittest.TestCase):
         self.assertTrue(core_auth.consume_recovery_code(self.user_id, new[0]))
 
     def test_regenerate_raises_when_not_enrolled(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         with self.assertRaises(core_auth.AuthError):
             core_auth.regenerate_recovery_codes(self.user_id)
 
     def test_recovery_codes_unique(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         _, codes = self._enroll()
         self.assertEqual(len(set(codes)), 10)
 
@@ -263,7 +263,7 @@ class TotpEndpointsTestBase(unittest.TestCase):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         from api.totp import router as totp_router
-        from api.auth import router as auth_router
+        from shared.api_auth import router as auth_router
         app = FastAPI()
         app.include_router(auth_router)
         app.include_router(totp_router)
@@ -279,7 +279,7 @@ class TotpEndpointsTestBase(unittest.TestCase):
 
     def setUp(self):
         _truncate_all(self._db_path)
-        from core import auth as core_auth
+        from shared import auth as core_auth
         # Reset rate limiter between tests
         core_auth.login_limiter._attempts.clear()
         self.password = "longenoughpassword"
@@ -369,7 +369,7 @@ class EnrollFlowTests(TotpEndpointsTestBase):
 
     def test_start_409_when_already_enrolled(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         # Enroll out-of-band
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
@@ -386,7 +386,7 @@ class DisableEndpointTests(TotpEndpointsTestBase):
 
     def _enroll(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         codes = core_auth.confirm_totp_enrollment(self.user_id, pyotp.TOTP(secret).now())
@@ -394,7 +394,7 @@ class DisableEndpointTests(TotpEndpointsTestBase):
 
     def test_disable_with_totp_code_succeeds(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret, _ = self._enroll()
         r = self.client.post(
             "/api/auth/totp/disable",
@@ -405,7 +405,7 @@ class DisableEndpointTests(TotpEndpointsTestBase):
         self.assertFalse(core_auth.user_has_totp(self.user_id))
 
     def test_disable_with_recovery_code_succeeds(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         _, codes = self._enroll()
         r = self.client.post(
             "/api/auth/totp/disable",
@@ -447,7 +447,7 @@ class RegenerateEndpointTests(TotpEndpointsTestBase):
 
     def _enroll(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         codes = core_auth.confirm_totp_enrollment(self.user_id, pyotp.TOTP(secret).now())
@@ -495,7 +495,7 @@ class TotpLoginFlowTests(TotpEndpointsTestBase):
 
     def _enroll(self):
         import pyotp
-        from core import auth as core_auth
+        from shared import auth as core_auth
         secret = core_auth.generate_totp_secret()
         core_auth.stash_pending_totp_secret(self.user_id, secret)
         codes = core_auth.confirm_totp_enrollment(self.user_id, pyotp.TOTP(secret).now())
@@ -567,7 +567,7 @@ class TotpLoginFlowTests(TotpEndpointsTestBase):
         )
         self.assertEqual(r2.status_code, 200)
         # Recovery code consumed
-        from core import auth as core_auth
+        from shared import auth as core_auth
         self.assertEqual(core_auth.count_active_recovery_codes(self.user_id), 9)
 
     def test_login_totp_rejects_wrong_code(self):

@@ -18,8 +18,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from core import broker_crypto  # noqa: E402
-from core.broker_crypto import (  # noqa: E402
+from shared import broker_crypto  # noqa: E402
+from shared.broker_crypto import (  # noqa: E402
     BrokerCryptoError,
     decrypt_credential,
     encrypt_credential,

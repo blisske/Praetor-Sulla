@@ -21,7 +21,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from core import auth as core_auth  # noqa: E402
+from shared import auth as core_auth  # noqa: E402
 
 
 # Path to the schema-init script — we need to materialize a fresh

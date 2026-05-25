@@ -87,6 +87,12 @@ CMD ["python", "main.py"]
 # ─── API target: FastAPI dashboard backend ─────────────────────────────────
 FROM base AS api
 
+# Anti-regression lint: fail the build if /api/auth/login is re-registered
+# in api/main.py (it lives in api/auth.py post-SaaS migration; re-registering
+# would shadow the multi-tenant flow). See scripts/check-no-legacy-login-route.sh.
+WORKDIR /app
+RUN sh scripts/check-no-legacy-login-route.sh
+
 # API expects to run from its own dir so the `from main import app` in
 # uvicorn's app spec resolves to api/main.py.
 WORKDIR /app/api

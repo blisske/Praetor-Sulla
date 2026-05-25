@@ -40,12 +40,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from core import auth as core_auth
-from core import broker_crypto
+from shared import auth as core_auth
+from shared import broker_crypto
 from core import email_sender
 from core import oanda_validator
-from core.auth import User
-from api.auth import get_current_user, _client_ip
+from shared.auth import User
+from shared.api_auth import get_current_user, _client_ip
 
 logger = logging.getLogger(__name__)
 

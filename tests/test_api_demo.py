@@ -36,7 +36,7 @@ def _setup_test_env(db_path: str) -> None:
     import init_global_db
     init_global_db.init_global_db(db_path, verbose=False)
 
-    from core import auth as core_auth
+    from shared import auth as core_auth
     core_auth.GLOBAL_DB_PATH = db_path
     core_auth.JWT_SECRET_KEY = os.environ["API_SECRET_KEY"]
     core_auth.JWT_EXPIRY_DAYS = 7
@@ -58,7 +58,7 @@ def _truncate_all(db_path: str) -> None:
 
 def _seed_demo_user(db_path: str) -> int:
     """Insert a user at id=2 (the demo user). Returns the id."""
-    from core import auth as core_auth
+    from shared import auth as core_auth
     # Burn id=1 with a throwaway user so create_user gives us id=2 for demo
     core_auth.create_user(email="placeholder@x.com", password="longenoughpassword")
     return core_auth.create_user(email="demo@foundationbots.com", password="longenoughpassword")
@@ -120,7 +120,7 @@ class DemoLoginHappyTests(DemoTestBase):
         r = self.client.post("/api/demo/login")
         token = r.json()["token"]
         # Decode using the same module that issued it
-        from core import auth as core_auth
+        from shared import auth as core_auth
         claims = core_auth.decode_jwt(token)
         self.assertEqual(claims["sub"], "2")
         self.assertTrue(claims["is_demo"])
@@ -131,7 +131,7 @@ class DemoLoginHappyTests(DemoTestBase):
         _seed_demo_user(self._db_path)
         r = self.client.post("/api/demo/login")
         token = r.json()["token"]
-        from core import auth as core_auth
+        from shared import auth as core_auth
         claims = core_auth.decode_jwt(token)
         ttl_sec = claims["exp"] - claims["iat"]
         # Default DEMO_TOKEN_HOURS=24 → 86400s. Allow generous slop +/- 60s.

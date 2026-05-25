@@ -32,7 +32,7 @@ def _setup_test_env(db_path: str) -> None:
     init_global_db.init_global_db(db_path, verbose=False)
 
     # Force core.auth to re-read env (it's already imported, so patch attributes)
-    from core import auth as core_auth
+    from shared import auth as core_auth
     core_auth.GLOBAL_DB_PATH = db_path
     core_auth.JWT_SECRET_KEY = os.environ["API_SECRET_KEY"]
     core_auth.JWT_EXPIRY_DAYS = 7
@@ -67,7 +67,7 @@ class AuthAPITestBase(unittest.TestCase):
         # Build a minimal FastAPI app with just our router
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from api.auth import router as auth_router
+        from shared.api_auth import router as auth_router
 
         app = FastAPI()
         app.include_router(auth_router)
@@ -84,7 +84,7 @@ class AuthAPITestBase(unittest.TestCase):
     def setUp(self):
         _truncate_all(self._db_path)
         # Reset rate limiters between tests too
-        from core import auth as core_auth
+        from shared import auth as core_auth
         for rl in [core_auth.login_limiter, core_auth.signup_limiter,
                    core_auth.verification_resend_lim, core_auth.password_reset_req_lim,
                    core_auth.password_reset_apply_lim, core_auth.verification_apply_lim]:
@@ -142,13 +142,13 @@ class SignupEndpointTests(AuthAPITestBase):
 
     def test_signup_creates_user_in_db(self):
         self._post_signup()
-        from core.auth import get_user_by_email
+        from shared.auth import get_user_by_email
         u = get_user_by_email("new@example.com")
         self.assertIsNotNone(u)
         self.assertEqual(u.id, 1)
 
     def test_jwt_is_valid_immediately_after_signup(self):
-        from core.auth import decode_jwt
+        from shared.auth import decode_jwt
         resp, _ = self._post_signup()
         token = resp.json()["token"]
         claims = decode_jwt(token)
@@ -172,7 +172,7 @@ class SignupEndpointTests(AuthAPITestBase):
 class LoginEndpointTests(AuthAPITestBase):
 
     def _create_user(self, email="user@example.com", password="verylongpassword123"):
-        from core.auth import create_user
+        from shared.auth import create_user
         return create_user(email, password)
 
     def test_happy_path(self):
@@ -208,13 +208,13 @@ class LoginEndpointTests(AuthAPITestBase):
         self.client.post("/api/auth/login", json={
             "email": "user@example.com", "password": "verylongpassword123",
         })
-        from core.auth import get_user_by_id
+        from shared.auth import get_user_by_id
         u = get_user_by_id(uid)
         self.assertIsNotNone(u.last_login_at)
 
     def test_bcrypt_hash_migrates_to_argon2_on_login(self):
         """Operator-style bcrypt hash should auto-migrate to argon2."""
-        from core import auth as core_auth
+        from shared import auth as core_auth
         from passlib.hash import bcrypt
         # Manually insert a user with a bcrypt hash (simulating
         # operator's legacy hash from .env)
@@ -234,14 +234,14 @@ class LoginEndpointTests(AuthAPITestBase):
         self.assertEqual(resp.status_code, 200)
 
         # Hash should now be argon2 (migrated on successful login)
-        from core.auth import get_user_by_email, get_user_password_hash
+        from shared.auth import get_user_by_email, get_user_password_hash
         u = get_user_by_email("legacy@example.com")
         new_hash = get_user_password_hash(u.id)
         self.assertTrue(new_hash.startswith("$argon2"))
 
     def test_deleted_user_cannot_login(self):
         uid = self._create_user(email="deleted@example.com")
-        from core.auth import soft_delete_user
+        from shared.auth import soft_delete_user
         soft_delete_user(uid)
         resp = self.client.post("/api/auth/login", json={
             "email": "deleted@example.com", "password": "verylongpassword123",
@@ -279,7 +279,7 @@ class MeEndpointTests(AuthAPITestBase):
 
     def test_token_for_deleted_user(self):
         token = self._signup(email="del@x.com")
-        from core.auth import get_user_by_email, soft_delete_user
+        from shared.auth import get_user_by_email, soft_delete_user
         u = get_user_by_email("del@x.com")
         soft_delete_user(u.id)
         resp = self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -292,7 +292,7 @@ class MeEndpointTests(AuthAPITestBase):
 class VerifyEmailEndpointTests(AuthAPITestBase):
 
     def test_happy_path(self):
-        from core.auth import create_user, create_email_verification, get_user_by_id
+        from shared.auth import create_user, create_email_verification, get_user_by_id
         uid = create_user("v@x.com", "verylongpassword123")
         token = create_email_verification(uid)
         resp = self.client.post("/api/auth/verify-email", json={"token": token})
@@ -305,7 +305,7 @@ class VerifyEmailEndpointTests(AuthAPITestBase):
         self.assertEqual(resp.status_code, 400)
 
     def test_token_single_use(self):
-        from core.auth import create_user, create_email_verification
+        from shared.auth import create_user, create_email_verification
         uid = create_user("vv@x.com", "verylongpassword123")
         token = create_email_verification(uid)
         self.client.post("/api/auth/verify-email", json={"token": token})
@@ -320,7 +320,7 @@ class VerifyEmailEndpointTests(AuthAPITestBase):
 class PasswordResetEndpointTests(AuthAPITestBase):
 
     def test_request_reset_for_existing_email(self):
-        from core.auth import create_user
+        from shared.auth import create_user
         create_user("r@x.com", "verylongpassword123")
         with patch("api.auth.email_sender.send_password_reset_email") as mock_send:
             mock_send.return_value = {"ok": True}
@@ -340,7 +340,7 @@ class PasswordResetEndpointTests(AuthAPITestBase):
         mock_send.assert_not_called()
 
     def test_apply_reset_changes_password(self):
-        from core.auth import create_user, create_password_reset, get_user_password_hash, verify_password
+        from shared.auth import create_user, create_password_reset, get_user_password_hash, verify_password
         uid = create_user("a@x.com", "old-password-very-long")
         old_hash = get_user_password_hash(uid)
         token = create_password_reset(uid)
@@ -465,7 +465,7 @@ class RateLimitingTests(AuthAPITestBase):
         # which would try to write to /app/data/users/<n>/ — collides with
         # the operator's real bind-mounted dirs in dev. Mock the provisioner
         # calls so this test stays in the auth-rate-limit scope.
-        from core import auth as core_auth
+        from shared import auth as core_auth
         limit = core_auth.signup_limiter.max_attempts
         with patch("api.auth.email_sender.send_verify_email") as mock_send, \
              patch("api.auth.provisioner_client.initialize_user_dir"), \

@@ -92,6 +92,13 @@ FOUNDATION_DATA_DIR = Path(os.environ.get(
     str(SWARM_ROOT / "foundation" / "data"),
 ))
 
+# Shared Python lib (auth, broker_crypto, api routers) bind-mounted into
+# per-user engines at /app/shared so `from shared.X` resolves.
+FOUNDATION_SHARED_DIR = Path(os.environ.get(
+    "FOUNDATION_SHARED_DIR",
+    str(SWARM_ROOT / "foundation" / "shared"),
+))
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,12 +125,14 @@ services:
       CONFIG_PATH:       /app/data/users/{user_id}/Config.yaml
       HEARTBEAT_PATH:    /app/data/users/{user_id}/.engine_heartbeat
       RESTART_FLAG_PATH: /app/data/users/{user_id}/.restart_engine
+      PYTHONPATH:        "/app"
     env_file:
       - {env_file}
     volumes:
       - {ionic_root}/data:/app/data:rw
       # Shared cross-bot identity DB (foundation/data/global.db)
       - {foundation_data}:/app/foundation:rw
+      - {foundation_shared}:/app/shared:ro
     networks:
       - {network}
     extra_hosts:
@@ -152,13 +161,14 @@ def render_fragment(user_id: int) -> str:
     """Build the per-user compose fragment text. Pure string substitution;
     no Docker calls; safe to call from tests."""
     return FRAGMENT_TEMPLATE.format(
-        user_id         = user_id,
-        ts              = datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        image           = ENGINE_IMAGE_TAG,
-        env_file        = SHARED_ENV_FILE,
-        ionic_root = IONIC_ROOT,
-        foundation_data = FOUNDATION_DATA_DIR,
-        network         = ENGINE_NETWORK,
+        user_id           = user_id,
+        ts                = datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        image             = ENGINE_IMAGE_TAG,
+        env_file          = SHARED_ENV_FILE,
+        ionic_root        = IONIC_ROOT,
+        foundation_data   = FOUNDATION_DATA_DIR,
+        foundation_shared = FOUNDATION_SHARED_DIR,
+        network           = ENGINE_NETWORK,
     )
 
 

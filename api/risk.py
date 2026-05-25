@@ -38,9 +38,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from core import auth as core_auth
-from core.auth import User
-from api.auth import get_current_user
+from shared import auth as core_auth
+from shared.auth import User
+from shared.api_auth import get_current_user
 from api.mode import _user_config_path, _touch_user_restart_flag, _log_mode_event
 
 logger = logging.getLogger(__name__)

@@ -29,7 +29,7 @@ def _setup_test_env(db_path: str) -> None:
     import init_global_db
     init_global_db.init_global_db(db_path, verbose=False)
 
-    from core import auth as core_auth
+    from shared import auth as core_auth
     core_auth.GLOBAL_DB_PATH = db_path
     core_auth.JWT_SECRET_KEY = os.environ["API_SECRET_KEY"]
 
@@ -49,7 +49,7 @@ def _truncate_all(db_path: str) -> None:
 
 
 def _seed_user(email="alice@x.com"):
-    from core import auth as core_auth
+    from shared import auth as core_auth
     user_id = core_auth.create_user(email=email, password="longenoughpassword")
     token = core_auth.create_jwt(
         user_id=user_id, email=email, email_verified=True, is_admin=False,
@@ -80,37 +80,37 @@ class HelperTests(unittest.TestCase):
         os.environ.update(self._saved_env)
 
     def test_no_acceptance_returns_none(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         self.assertIsNone(core_auth.get_latest_tos_acceptance(self.user_id))
 
     def test_record_then_get_latest(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.record_tos_acceptance(self.user_id, "2026-05-22", ip="1.2.3.4")
         self.assertEqual(core_auth.get_latest_tos_acceptance(self.user_id), "2026-05-22")
 
     def test_latest_is_most_recent(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.record_tos_acceptance(self.user_id, "1.0.0")
         core_auth.record_tos_acceptance(self.user_id, "1.1.0")
         core_auth.record_tos_acceptance(self.user_id, "2.0.0")
         self.assertEqual(core_auth.get_latest_tos_acceptance(self.user_id), "2.0.0")
 
     def test_needs_reaccept_true_when_no_acceptance(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         self.assertTrue(core_auth.user_needs_tos_reaccept(self.user_id))
 
     def test_needs_reaccept_false_when_current_matches(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.record_tos_acceptance(self.user_id, core_auth.CURRENT_TOS_VERSION)
         self.assertFalse(core_auth.user_needs_tos_reaccept(self.user_id))
 
     def test_needs_reaccept_true_when_old_version(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.record_tos_acceptance(self.user_id, "ancient-version-1999")
         self.assertTrue(core_auth.user_needs_tos_reaccept(self.user_id))
 
     def test_audit_trail_preserves_history(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.record_tos_acceptance(self.user_id, "1.0.0", ip="1.1.1.1")
         core_auth.record_tos_acceptance(self.user_id, "2.0.0", ip="2.2.2.2")
         conn = sqlite3.connect(self.db_path)
@@ -125,7 +125,7 @@ class HelperTests(unittest.TestCase):
 
     def test_record_failure_does_not_raise(self):
         # Pass a bad db_path → should log but not crash
-        from core import auth as core_auth
+        from shared import auth as core_auth
         try:
             core_auth.record_tos_acceptance(self.user_id, "x", db_path="/nonexistent/g.db")
         except Exception as e:
@@ -146,7 +146,7 @@ class AcceptTosEndpointTests(unittest.TestCase):
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from api.auth import router as auth_router
+        from shared.api_auth import router as auth_router
 
         app = FastAPI()
         app.include_router(auth_router)
@@ -162,7 +162,7 @@ class AcceptTosEndpointTests(unittest.TestCase):
 
     def setUp(self):
         _truncate_all(self._db_path)
-        from core import auth as core_auth
+        from shared import auth as core_auth
         # Reset rate limiters between tests
         for rl in [core_auth.login_limiter, core_auth.signup_limiter,
                    core_auth.verification_resend_lim, core_auth.password_reset_req_lim,
@@ -171,7 +171,7 @@ class AcceptTosEndpointTests(unittest.TestCase):
         self.user_id, self.token = _seed_user("alice@x.com")
 
     def test_accept_current_version_success(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         resp = self.client.post(
             "/api/auth/accept-tos",
             json={"version": core_auth.CURRENT_TOS_VERSION},
@@ -193,7 +193,7 @@ class AcceptTosEndpointTests(unittest.TestCase):
         self.assertIn("current one", resp.json()["detail"])
 
     def test_accept_without_bearer_returns_401(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         resp = self.client.post(
             "/api/auth/accept-tos",
             json={"version": core_auth.CURRENT_TOS_VERSION},
@@ -201,7 +201,7 @@ class AcceptTosEndpointTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 401)
 
     def test_repeat_acceptance_idempotent_appends_row(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         for _ in range(3):
             self.client.post(
                 "/api/auth/accept-tos",
@@ -231,7 +231,7 @@ class MeEndpointTosFieldsTests(unittest.TestCase):
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from api.auth import router as auth_router
+        from shared.api_auth import router as auth_router
 
         app = FastAPI()
         app.include_router(auth_router)
@@ -246,13 +246,13 @@ class MeEndpointTosFieldsTests(unittest.TestCase):
 
     def setUp(self):
         _truncate_all(self._db_path)
-        from core import auth as core_auth
+        from shared import auth as core_auth
         for rl in [core_auth.login_limiter, core_auth.signup_limiter]:
             rl._attempts.clear()
         self.user_id, self.token = _seed_user("me@x.com")
 
     def test_me_includes_tos_fields_when_not_accepted(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         resp = self.client.get("/api/auth/me", headers=_bearer(self.token))
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -261,7 +261,7 @@ class MeEndpointTosFieldsTests(unittest.TestCase):
         self.assertTrue(body["tos_needs_reaccept"])
 
     def test_me_after_accept_shows_no_reaccept_needed(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         self.client.post(
             "/api/auth/accept-tos",
             json={"version": core_auth.CURRENT_TOS_VERSION},
@@ -287,7 +287,7 @@ class SignupRecordsTosTests(unittest.TestCase):
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from api.auth import router as auth_router
+        from shared.api_auth import router as auth_router
 
         app = FastAPI()
         app.include_router(auth_router)
@@ -302,12 +302,12 @@ class SignupRecordsTosTests(unittest.TestCase):
 
     def setUp(self):
         _truncate_all(self._db_path)
-        from core import auth as core_auth
+        from shared import auth as core_auth
         for rl in [core_auth.login_limiter, core_auth.signup_limiter]:
             rl._attempts.clear()
 
     def test_signup_records_acceptance(self):
-        from core import auth as core_auth
+        from shared import auth as core_auth
         with patch("api.auth.email_sender.send_verify_email") as mock_email, \
              patch("api.auth.provisioner_client.initialize_user_dir"), \
              patch("api.auth.provisioner_client.enqueue_provision"):

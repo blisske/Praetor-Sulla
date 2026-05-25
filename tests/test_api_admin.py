@@ -33,7 +33,7 @@ def _setup_test_env(db_path: str, user_data_dir: str, queue_dir: str, audit_log:
     init_global_db.init_global_db(db_path, verbose=False)
 
     # Rebind module-level constants that were captured at import time
-    from core import auth as core_auth
+    from shared import auth as core_auth
     core_auth.GLOBAL_DB_PATH = db_path
     core_auth.JWT_SECRET_KEY = os.environ["API_SECRET_KEY"]
     core_auth.JWT_EXPIRY_DAYS = 7
@@ -58,7 +58,7 @@ def _truncate_all(db_path: str) -> None:
 
 def _seed_user(email: str, *, is_admin: bool = False) -> tuple[int, str]:
     """Insert a user, return (user_id, jwt)."""
-    from core import auth as core_auth
+    from shared import auth as core_auth
     user_id = core_auth.create_user(email=email, password="longenoughpassword", is_admin=is_admin)
     token = core_auth.create_jwt(
         user_id=user_id, email=email, email_verified=True, is_admin=is_admin,

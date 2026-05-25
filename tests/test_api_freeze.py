@@ -31,7 +31,7 @@ def _setup_test_env(db_path: str, user_data_dir: str) -> None:
     import init_global_db
     init_global_db.init_global_db(db_path, verbose=False)
 
-    from core import auth as core_auth
+    from shared import auth as core_auth
     core_auth.GLOBAL_DB_PATH = db_path
     core_auth.JWT_SECRET_KEY = os.environ["API_SECRET_KEY"]
     core_auth.JWT_EXPIRY_DAYS = 7
@@ -51,7 +51,7 @@ def _truncate_all(db_path: str) -> None:
 
 
 def _seed_user(email="alice@x.com", is_admin=False):
-    from core import auth as core_auth
+    from shared import auth as core_auth
     user_id = core_auth.create_user(email=email, password="longenoughpassword", is_admin=is_admin)
     token = core_auth.create_jwt(user_id=user_id, email=email, email_verified=True, is_admin=is_admin)
     return user_id, token

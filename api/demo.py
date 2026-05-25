@@ -32,7 +32,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
-from core import auth as core_auth
+from shared import auth as core_auth
 
 logger = logging.getLogger(__name__)
 

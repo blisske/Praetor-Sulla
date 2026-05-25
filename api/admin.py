@@ -37,10 +37,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from core import auth as core_auth
+from shared import auth as core_auth
 from core import provisioner_client
-from core.auth import User
-from api.auth import get_current_admin
+from shared.auth import User
+from shared.api_auth import get_current_admin
 
 logger = logging.getLogger(__name__)
 

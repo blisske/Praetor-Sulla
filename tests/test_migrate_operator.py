@@ -96,14 +96,14 @@ class UpsertOperatorTests(MigrationTestBase):
             db_path=self.db_path, email="op@example.com", password_hash=SAMPLE_BCRYPT,
         )
         # Simulate a regular signup using the auth helper
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.GLOBAL_DB_PATH = self.db_path
         new_uid = core_auth.create_user(email="other@example.com", password="longenoughpassword")
         self.assertEqual(new_uid, 2)
 
     def test_clash_with_other_id_aborts(self):
         """If email is already in use by user_id != 1, migration refuses."""
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.GLOBAL_DB_PATH = self.db_path
         core_auth.create_user(email="conflict@example.com", password="longenoughpassword")  # id=1 here
         # Now insert another user at id=2 with id=1 still free
@@ -272,7 +272,7 @@ class UpsertDemoUserTests(MigrationTestBase):
         migrate.upsert_demo_user(
             db_path=self.db_path, email="demo@x.com", password_hash=SAMPLE_BCRYPT,
         )
-        from core import auth as core_auth
+        from shared import auth as core_auth
         core_auth.GLOBAL_DB_PATH = self.db_path
         new_uid = core_auth.create_user(email="alice@x.com", password="longenoughpassword")
         self.assertEqual(new_uid, 3)

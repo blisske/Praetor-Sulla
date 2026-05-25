@@ -26,9 +26,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from core import auth as core_auth
-from core.auth import User, AuthError
-from api.auth import get_current_user, _client_ip
+from shared import auth as core_auth
+from shared.auth import User, AuthError
+from shared.api_auth import get_current_user, _client_ip
 from api.mode import _log_mode_event   # reuses broker_key_events audit table
 
 logger = logging.getLogger(__name__)

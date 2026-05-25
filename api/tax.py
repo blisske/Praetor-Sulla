@@ -34,10 +34,10 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from core import auth as core_auth
+from shared import auth as core_auth
 from core import tax as tax_module
-from core.auth import User
-from api.auth import get_current_user
+from shared.auth import User
+from shared.api_auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
