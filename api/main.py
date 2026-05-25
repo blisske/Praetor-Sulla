@@ -693,15 +693,17 @@ async def save_config(payload: dict, _admin = Depends(get_current_admin)):
     return {"status": "saved"}
 
 @app.post("/api/restart")
-async def restart_service(user: str = Depends(get_current_user)):
+async def restart_service(_admin = Depends(get_current_admin)):
+    """Cross-container engine restart for the OPERATOR's bot. Admin-only.
+
+    Pre-2026-05-25 the gate was a demo-only block, which let every
+    signed-up SaaS tenant touch the operator's flag file and force the
+    operator's engine to exit + restart. Spammed, that's a cheap DoS.
+    Same fix as Corinthian's 8037a97 and Doric's restart.
+
+    Per-tenant engine restarts go through
+    /api/admin/users/{id}/restart-engine (also admin-gated).
     """
-    Cross-container engine restart. Writes a flag file that the engine's main
-    loop watches; the engine deletes the flag and exits cleanly, then docker
-    compose `restart: unless-stopped` brings it back with the freshly saved
-    Config.yaml. No host-side privileges (sudo/systemctl) required.
-    """
-    if user == DEMO_USERNAME:
-        raise HTTPException(status_code=403, detail="Demo account is read-only")
     try:
         RESTART_FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
         RESTART_FLAG_PATH.touch()
