@@ -206,16 +206,54 @@ def _per_user_db_path(user_id: int) -> Path:
 def _ensure_per_user_db_schema(per_user_path: Path) -> None:
     """Seed DDL from operator's DB into a fresh per-user file so SELECTs
     return 0 rows instead of erroring before the per-user engine has booted.
-    Idempotent."""
+
+    Idempotent: if the file exists, has the trades table, AND is empty,
+    this is a no-op. Defense-in-depth scrub against template leaks (see
+    Doric incident 2026-05-25): if any rows show up, log loudly and
+    DELETE them all before returning.
+    """
     per_user_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         c = sqlite3.connect(per_user_path)
         existing = c.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='trades'"
         ).fetchone()
-        c.close()
         if existing:
+            tables = [r[0] for r in c.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%'"
+            )]
+            row_total = 0
+            for t in tables:
+                try:
+                    row_total += c.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                except sqlite3.OperationalError:
+                    pass
+            if row_total == 0:
+                c.close()
+                return
+            try:
+                import logging
+                logging.getLogger(__name__).error(
+                    "Per-user DB %s had %d leaked rows across %d tables; "
+                    "scrubbing in-place. Investigate the template.",
+                    per_user_path, row_total, len(tables),
+                )
+            except Exception:
+                pass
+            for t in tables:
+                try:
+                    c.execute(f"DELETE FROM {t}")
+                except sqlite3.OperationalError:
+                    pass
+            try:
+                c.execute("DELETE FROM sqlite_sequence")
+            except sqlite3.OperationalError:
+                pass
+            c.commit()
+            c.close()
             return
+        c.close()
     except sqlite3.Error:
         pass
     try:
