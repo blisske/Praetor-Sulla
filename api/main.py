@@ -561,19 +561,24 @@ def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
     return float(units or 0) * float(price or 0)
 
 
-def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float, float]:
+def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float, float, float, float]:
     """
-    Returns (initial_capital, shadow_equity, pnl_usd).
+    Returns (initial_capital, shadow_equity_NET, pnl_NET_usd, gross_pnl_usd, fees_paid_usd).
 
-    Prefers the post-Phase-1 shadow_account ledger when present:
-      equity = cash + market_value(open positions at most-recent market_states price)
-    Falls back to the legacy "initial + sum(realized)" calc when shadow_account
-    is missing — keeps the API working against pre-pivot DBs.
+    Equity = cash + market_value(open positions) − fees_paid_to_date.
+    Fees come from trades.fee_usd, auto-recorded at log time via
+    database.SHADOW_FEE_RATE (default 1 bp per leg modeling Oanda's
+    ~1-pip spread on EUR/USD and similar majors). Added 2026-05-26 after
+    Corinthian's hidden-fee blind spot — same pattern across all 3 bots.
 
     FX mark uses `_fx_position_value_usd` so USD-base pairs (USD/JPY, USD/CAD,
     USD/CHF) don't get inflated by units × price (1199 USD × 159 JPY/USD =
     $190K nonsense). See helper's docstring for the math.
     """
+    fees_paid = float(conn.execute(
+        "SELECT COALESCE(SUM(fee_usd), 0.0) FROM trades"
+    ).fetchone()[0])
+
     shadow_row = conn.execute(
         "SELECT cash, initial_capital FROM shadow_account WHERE id=1"
     ).fetchone() if _table_exists(conn, "shadow_account") else None
@@ -581,8 +586,6 @@ def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float,
     if shadow_row:
         cash    = float(shadow_row[0])
         initial = float(shadow_row[1])
-        # Market value: FX-aware mark per symbol; falls back to entry_price
-        # when market_states has no row for the symbol yet.
         positions = conn.execute("""
             SELECT op.symbol, op.shares, op.entry_price,
                    (SELECT price FROM market_states WHERE symbol=op.symbol ORDER BY id DESC LIMIT 1)
@@ -594,15 +597,18 @@ def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float,
             )
             for (sym, shares, entry, latest) in positions
         )
-        equity  = cash + market_value
-        pnl_usd = equity - initial
-        return initial, equity, pnl_usd
+        equity_gross = cash + market_value
+        equity_net   = equity_gross - fees_paid
+        gross_pnl    = equity_gross - initial
+        net_pnl      = equity_net   - initial
+        return initial, equity_net, net_pnl, gross_pnl, fees_paid
 
-    # Legacy path
-    pnl = conn.execute(
+    # Legacy path — pre-shadow_account DBs
+    gross_pnl = float(conn.execute(
         "SELECT COALESCE(SUM(amount), 0.0) FROM trades WHERE action='SHADOW SELL'"
-    ).fetchone()[0]
-    return initial_fallback, initial_fallback + pnl, pnl
+    ).fetchone()[0])
+    net_pnl = gross_pnl - fees_paid
+    return initial_fallback, initial_fallback + net_pnl, net_pnl, gross_pnl, fees_paid
 
 
 @app.get("/api/equity")
@@ -617,7 +623,7 @@ async def get_equity(ctx: AuthCtx = Depends(get_auth_ctx)):
         # 2026-05-25 bug-hunt caught it.
         config = load_engine_config_for(ctx)
         cfg_initial = config.get("risk", {}).get("initial_capital", 25000.0)
-        initial, shadow_equity, pnl = _compute_shadow_equity(conn, cfg_initial)
+        initial, shadow_equity, net_pnl, gross_pnl, fees_paid = _compute_shadow_equity(conn, cfg_initial)
         peak_equity = float(peak[0]) if peak and peak[0] else initial
 
         # Drawdown computed against peak watermark (matches the autonomous loop's
@@ -631,8 +637,12 @@ async def get_equity(ctx: AuthCtx = Depends(get_auth_ctx)):
         return {
             "initial_capital":      round(initial, 2),
             "shadow_equity":        round(shadow_equity, 2),
-            "pnl_usd":              round(pnl, 2),
-            "pnl_pct":              round((pnl / initial) * 100, 2) if initial else 0,
+            # pnl_usd is NET of fees; gross + fees surfaced separately
+            # (added 2026-05-26 after Corinthian's hidden-fee finding).
+            "pnl_usd":              round(net_pnl, 2),
+            "gross_pnl_usd":        round(gross_pnl, 2),
+            "fees_paid_usd":        round(fees_paid, 2),
+            "pnl_pct":              round((net_pnl / initial) * 100, 2) if initial else 0,
             "peak_equity":          round(peak_equity, 2),
             "drawdown_pct":         round(drawdown_pct, 2),
             "risk_mode":            risk["risk_mode"],
@@ -650,18 +660,20 @@ async def get_equity(ctx: AuthCtx = Depends(get_auth_ctx)):
 
 @app.get("/api/equity/curve")
 async def get_equity_curve(ctx: AuthCtx = Depends(get_auth_ctx)):
-    """Full shadow-equity timeseries — accumulates every SHADOW SELL P&L
-    onto initial_capital server-side. Replaces the dashboard's old client-
-    side reconstruction from /api/trades?limit=50, which silently
-    truncated and showed a phantom step at "Now" (bug-hunt #153, 2026-05-26).
+    """Full shadow-equity timeseries — net of fees. Walks every trade row
+    chronologically, subtracting each leg's fee_usd; SHADOW SELL legs
+    additionally add their amount (realized gross P&L).
+
+    Fees auto-recorded at log time via database.SHADOW_FEE_RATE (default
+    1 bp per leg, modeling Oanda's ~1-pip spread on EUR/USD majors).
     """
     conn = get_db_for(ctx)
     try:
         config = load_engine_config_for(ctx)
         initial = config.get("risk", {}).get("initial_capital", 10000.0)
         rows = conn.execute(
-            "SELECT timestamp, symbol, amount FROM trades "
-            "WHERE action = 'SHADOW SELL' ORDER BY id ASC"
+            "SELECT timestamp, symbol, action, amount, fee_usd FROM trades "
+            "ORDER BY id ASC"
         ).fetchall()
     finally:
         conn.close()
@@ -669,17 +681,24 @@ async def get_equity_curve(ctx: AuthCtx = Depends(get_auth_ctx)):
     running = float(initial)
     points = []
     for r in rows:
-        delta = float(r["amount"] or 0.0)
+        fee   = float(r["fee_usd"] or 0.0)
+        delta = -fee
+        if r["action"] == "SHADOW SELL":
+            delta += float(r["amount"] or 0.0)
+        elif r["action"] not in ("SHADOW BUY", "SHADOW BUY ADD", "SHADOW PARTIAL SELL"):
+            if fee == 0:
+                continue
         running += delta
-        ts = r["timestamp"]
-        if isinstance(ts, str) and ts and 'Z' not in ts and '+' not in ts:
-            ts = ts.replace(' ', 'T') + 'Z'
-        points.append({
-            "timestamp": ts,
-            "symbol":    r["symbol"],
-            "delta":     round(delta, 2),
-            "equity":    round(running, 2),
-        })
+        if r["action"] == "SHADOW SELL":
+            ts = r["timestamp"]
+            if isinstance(ts, str) and ts and 'Z' not in ts and '+' not in ts:
+                ts = ts.replace(' ', 'T') + 'Z'
+            points.append({
+                "timestamp": ts,
+                "symbol":    r["symbol"],
+                "delta":     round(delta, 2),
+                "equity":    round(running, 2),
+            })
     return {
         "initial_capital":   float(initial),
         "points":            points,
@@ -1003,7 +1022,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = ""):
                 # Per-tenant config (ws_ctx) — same fix as /api/equity.
                 config    = load_engine_config_for(ws_ctx)
                 cfg_init  = config.get("risk", {}).get("initial_capital", 25000.0)
-                initial, shadow_equity, pnl = _compute_shadow_equity(conn, cfg_init)
+                initial, shadow_equity, net_pnl, gross_pnl, fees_paid = _compute_shadow_equity(conn, cfg_init)
                 positions = conn.execute("SELECT * FROM open_positions").fetchall()
                 recent    = conn.execute(
                     "SELECT * FROM trades ORDER BY id DESC LIMIT 5"
@@ -1020,7 +1039,9 @@ async def websocket_endpoint(ws: WebSocket, token: str = ""):
                 "type":           "tick",
                 "timestamp":      datetime.now(timezone.utc).isoformat(),
                 "shadow_equity":  round(shadow_equity, 2),
-                "pnl_usd":        round(pnl, 2),
+                "pnl_usd":        round(net_pnl, 2),
+                "gross_pnl_usd":  round(gross_pnl, 2),
+                "fees_paid_usd":  round(fees_paid, 2),
                 "open_positions": len(positions),
                 "recent_trades":  [_row(r) for r in recent],
                 "session":        _market_session_status(),

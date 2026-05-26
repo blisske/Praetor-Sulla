@@ -305,6 +305,21 @@ def emit_event(event_type: str, payload: dict) -> None:
         logger.warning(f"emit_event({event_type}) failed: {e}")
 
 
+# Shadow-mode fee rate (env-overridable). Default 0.0001 = 1 basis point
+# per leg, modeling Oanda's ~1-pip spread on EUR/USD and other FX majors
+# (0.6-1.5 pips typical on practice + standard accounts ≈ 0.6-1.5 bp).
+# Exotic crosses are 3-10× wider; if the active universe pivots to
+# minors/exotics, raise SHADOW_FEE_RATE to 0.0005 or higher via env var.
+# Added 2026-05-26 after Corinthian's hidden-fee blind spot — same code
+# path applied to all 3 bots for consistency.
+#
+# Not modeled: overnight swap/financing charges on positions held past
+# 5pm NY (Oanda credits/debits based on rate differential). For 24-hour-
+# average-hold strategies this is small; for multi-day holds it stacks.
+# Track separately if Ionic moves to position-hold scales.
+SHADOW_FEE_RATE = float(os.getenv("SHADOW_FEE_RATE", "0.0001"))
+
+
 def log_trade(symbol, action, price, amount, strategy, verdict="", position_size_usd=0.0, fee_usd=0.0):
     """
     Writes a new trade event to the ledger.
@@ -313,14 +328,26 @@ def log_trade(symbol, action, price, amount, strategy, verdict="", position_size
     of price drift afterward — useful for the tuner + risk analytics.
 
     fee_usd is the total cost for THIS fill in USD. Used by core/tax.py
-    for §988 ordinary-income attribution. For Phase 1 scaffold this is
-    always 0.0; Phase 2 (Oanda broker integration) will derive it from
+    for §988 ordinary-income attribution. For Phase 1 scaffold the live
+    path is 0.0; Phase 2 (Oanda broker integration) will derive it from
     the spread + financing charges in the v20 trade transaction stream.
+
+    For SHADOW * actions where caller passes fee_usd=0, we synthesize a
+    fee = position_size_usd * SHADOW_FEE_RATE so the shadow ledger
+    reflects realistic spread cost (Oanda's revenue model is spread,
+    not commission). Default rate models 1-pip EUR/USD-style spreads.
 
     Side effect: emits a `trade` WS event for SHADOW BUY / SHADOW SELL /
     SHADOW BUY ADD actions so the dashboard sees fills in real time without
     waiting for the 5s tick. Live-path actions are not surfaced.
     """
+    # Synthesize shadow-mode fee when caller didn't pass one.
+    if (fee_usd == 0.0
+            and isinstance(action, str)
+            and action.startswith("SHADOW ")
+            and position_size_usd > 0):
+        fee_usd = float(position_size_usd) * SHADOW_FEE_RATE
+
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
