@@ -442,7 +442,7 @@ export default function Dashboard() {
 
       <MarketRail market={market} symbols={railSymbols} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           label={<>Shadow Equity <HelpTip text="Simulated portfolio value based on paper trade P&L. Starts at configured initial capital." /></>}
           value={`$${shadowEquity.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })}`}
@@ -450,10 +450,16 @@ export default function Dashboard() {
           icon={DollarSign} color="accent"
         />
         <StatCard
-          label={<>Total P&L <HelpTip text="Sum of all closed shadow trade P&L in dollars and as a percentage of starting capital." /></>}
+          label={<>Net P&L <HelpTip text={`Total P&L after deducting simulated Oanda spread cost (~1bp/leg on majors).${equity?.gross_pnl_usd != null ? ` Gross before fees: ${equity.gross_pnl_usd >= 0 ? '+' : ''}$${equity.gross_pnl_usd.toFixed(2)}.` : ''}`} /></>}
           value={`${isUp ? '+' : ''}$${Math.abs(pnlUsd).toFixed(2)}`}
           sub={`${isUp ? '+' : ''}${pnlPct}% return`}
           icon={isUp ? TrendingUp : TrendingDown} color={isUp ? 'green' : 'red'}
+        />
+        <StatCard
+          label={<>Fees Paid <HelpTip text="Simulated Oanda spread cost (~1bp/leg on EUR/USD majors). Oanda's revenue model is the bid/ask spread, not commission. Doesn't yet model swap/financing charges on overnight holds. Set SHADOW_FEE_RATE env var to override." /></>}
+          value={`$${(equity?.fees_paid_usd ?? 0).toFixed(2)}`}
+          sub={equity?.gross_pnl_usd ? `${((equity.fees_paid_usd / Math.max(Math.abs(equity.gross_pnl_usd), 0.01)) * 100).toFixed(0)}% of gross P&L` : 'shadow estimate'}
+          icon={TrendingDown} color="amber"
         />
         <StatCard
           label={<>Open Positions <HelpTip text="Number of shadow trades currently active." /></>}

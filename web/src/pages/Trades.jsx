@@ -35,7 +35,7 @@ export default function Trades() {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom:'1px solid var(--border-row)' }}>
-              {['Time', 'Pair', 'Action', 'Price', 'Units', 'Strategy', 'Result'].map(h => (
+              {['Time', 'Pair', 'Action', 'Price', 'Units', 'Fee', 'Strategy', 'Result'].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium uppercase tracking-wider" style={{ color:'var(--text-muted)' }}>{h}</th>
               ))}
             </tr>
@@ -76,6 +76,15 @@ export default function Trades() {
                   <td className="px-4 py-3 font-medium" style={{ color:'var(--text-primary)', fontFamily:"'JetBrains Mono', monospace" }}>
                     {shares != null && shares > 0
                       ? `${shares} sh`
+                      : <span style={{ color:'var(--text-dim)' }}>—</span>
+                    }
+                  </td>
+                  {/* Fee — added 2026-05-26. Oanda revenue is spread-based,
+                      not commission. Shadow fills carry SHADOW_FEE_RATE *
+                      position_size_usd from database.log_trade (~1bp/leg). */}
+                  <td className="px-4 py-3 text-xs" style={{ color:'var(--text-sub)', fontFamily:"'JetBrains Mono', monospace" }}>
+                    {t.fee_usd != null && t.fee_usd > 0
+                      ? `$${t.fee_usd.toFixed(2)}`
                       : <span style={{ color:'var(--text-dim)' }}>—</span>
                     }
                   </td>
