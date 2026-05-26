@@ -647,6 +647,46 @@ async def get_equity(ctx: AuthCtx = Depends(get_auth_ctx)):
     finally:
         conn.close()
 
+
+@app.get("/api/equity/curve")
+async def get_equity_curve(ctx: AuthCtx = Depends(get_auth_ctx)):
+    """Full shadow-equity timeseries — accumulates every SHADOW SELL P&L
+    onto initial_capital server-side. Replaces the dashboard's old client-
+    side reconstruction from /api/trades?limit=50, which silently
+    truncated and showed a phantom step at "Now" (bug-hunt #153, 2026-05-26).
+    """
+    conn = get_db_for(ctx)
+    try:
+        config = load_engine_config_for(ctx)
+        initial = config.get("risk", {}).get("initial_capital", 10000.0)
+        rows = conn.execute(
+            "SELECT timestamp, symbol, amount FROM trades "
+            "WHERE action = 'SHADOW SELL' ORDER BY id ASC"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    running = float(initial)
+    points = []
+    for r in rows:
+        delta = float(r["amount"] or 0.0)
+        running += delta
+        ts = r["timestamp"]
+        if isinstance(ts, str) and ts and 'Z' not in ts and '+' not in ts:
+            ts = ts.replace(' ', 'T') + 'Z'
+        points.append({
+            "timestamp": ts,
+            "symbol":    r["symbol"],
+            "delta":     round(delta, 2),
+            "equity":    round(running, 2),
+        })
+    return {
+        "initial_capital":   float(initial),
+        "points":            points,
+        "shadow_equity_now": round(running, 2),
+    }
+
+
 @app.get("/api/config")
 async def get_config(_admin = Depends(get_current_admin)):
     """Operator's engine config. Admin-only — non-operator tenants were

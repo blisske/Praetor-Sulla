@@ -373,23 +373,21 @@ export default function Dashboard() {
     Promise.all([api.get('/trades?limit=100'), api.get('/equity')]).then(([tradesRes, eqRes]) => {
       setTrades(tradesRes.data.trades)
       setEquity(eqRes.data)
-      const initial = eqRes.data?.initial_capital ?? 25000.0
-      let running = initial
-      const sells = tradesRes.data.trades.filter(t => t.action === 'SHADOW SELL').reverse()
-      const curve = [{ time:'Start', equity:initial }]
-      sells.forEach(t => {
-        running += (t.amount || 0)
-        curve.push({ time: new Date(t.timestamp).toLocaleDateString(), equity: parseFloat(running.toFixed(2)) })
-      })
-      // Append a live "Now" point so the curve's endpoint matches the equity
-      // card. The realized-only walk above misses unrealized PnL on open
-      // positions; shadow_equity from the API includes both. Without this,
-      // the card can sit outside the chart's Y-axis range whenever open
-      // positions are running PnL.
-      if (eqRes.data?.shadow_equity != null) {
-        curve.push({ time: 'Now', equity: parseFloat(eqRes.data.shadow_equity.toFixed(2)) })
-      }
-      setEquityHistory(curve)
+    })
+    // Server-side equity curve (full timeseries, no client-side window).
+    // Replaced 2026-05-26 client-side reconstruction that silently
+    // truncated to ~24 SHADOW SELL rows from /api/trades?limit=100 and
+    // showed a phantom step at "Now".
+    api.get('/equity/curve').then(r => {
+      const pts = (r.data.points || []).map(p => ({
+        time:   new Date(p.timestamp).toLocaleDateString(),
+        equity: p.equity,
+      }))
+      setEquityHistory([
+        { time: 'Start', equity: r.data.initial_capital },
+        ...pts,
+        { time: 'Now',   equity: r.data.shadow_equity_now },
+      ])
     })
 
     const proto  = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
