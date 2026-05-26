@@ -76,6 +76,16 @@ def send_email(
 
     Returns a result dict (see module docstring). Never raises.
     """
+    # Bug-hunt suppression — see Corinthian's email_sender for rationale.
+    # Stops the TestUser harness from burning Postmark's monthly quota.
+    if (os.environ.get("BUGHUNT_BYPASS_RATELIMIT") == "1"
+            and to and to.startswith("bughunt+")):
+        logger.info(f"[bughunt suppressed] send_email to={to} subject={subject!r}")
+        return {
+            "ok": True, "message_id": "bughunt-suppressed", "submitted_at": None,
+            "error": None,
+        }
+
     token = os.environ.get("POSTMARK_SERVER_TOKEN")
     if not token:
         logger.error("POSTMARK_SERVER_TOKEN not set — cannot send email")
