@@ -62,7 +62,7 @@ app = FastAPI(title="Foundation Ionic API", version="2.0.0")
 # Legacy env-hash /api/auth/login retired in this cutover — both operator
 # (user_id=1) and demo (user_id=2) authenticate via the shared
 # foundation/data/global.db now.
-from shared.api_auth import router as _auth_router, get_current_admin  # noqa: E402 (after sys.path)
+from shared.api_auth import router as _auth_router, get_current_admin, get_current_admin_or_demo  # noqa: E402 (after sys.path)
 from api.byok     import router as _byok_router      # noqa: E402 (Oanda)
 from api.mode     import router as _mode_router      # noqa: E402
 from api.admin    import router as _admin_router     # noqa: E402
@@ -707,7 +707,7 @@ async def get_equity_curve(ctx: AuthCtx = Depends(get_auth_ctx)):
 
 
 @app.get("/api/config")
-async def get_config(_admin = Depends(get_current_admin)):
+async def get_config(_admin = Depends(get_current_admin_or_demo)):
     """Operator's engine config. Admin-only — non-operator tenants were
     seeing this until the 2026-05-25 bug-hunt caught the gap. Per-user
     config UX is a separate feature not yet built."""
@@ -848,7 +848,7 @@ async def get_market(ctx: AuthCtx = Depends(get_auth_ctx), hours: int = 24):
         conn.close()
 
 @app.get("/api/watchlist")
-async def get_watchlist(_admin = Depends(get_current_admin)):
+async def get_watchlist(_admin = Depends(get_current_admin_or_demo)):
     """Returns the OPERATOR's active symbol watchlist from Config.yaml.
     Admin-only — same fix as /api/config gate (42da616). Per-user
     watchlist UX is a separate feature not yet built."""
