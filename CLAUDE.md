@@ -1,7 +1,6 @@
 # CLAUDE.md — Ionic / Foundation FX Project Context
 
-> This file gives Claude Code the authoritative context for working on this project.
-> Read this file first, then `WORKING_STATE.md` for current state.
+> **Read order:** start at `~/swarm/CLAUDE.md` (cross-bot ground truth — host, ports, capability index, standing rules). Then this file (Ionic internals). Then `WORKING_STATE.md` (current state). The swarm-root file covers things that span bots — don't duplicate those facts here.
 
 ---
 
