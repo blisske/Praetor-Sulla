@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth.jsx'
 
 const GOLD     = '#C8922A'
@@ -334,6 +334,21 @@ export default function Login() {
             {loading ? 'Authenticating…' : 'Sign In →'}
           </button>
         </form>
+
+        {/* Public demo escape hatch — mirrors Doric + Corinthian login pages.
+            /demo route was wired in App.jsx + DemoMode.jsx exists, but
+            until 2026-05-26 there was no LINK to it anywhere, so visitors
+            hit the login wall with no way to explore. */}
+        <div style={{
+          marginTop: '24px', paddingTop: '20px',
+          borderTop: '1px solid #1e293b',
+          fontSize: '13px', textAlign: 'center', color: '#94a3b8',
+        }}>
+          <Link to="/demo" style={{ color: BLUE, textDecoration: 'none' }}>
+            Just looking?{' '}
+            <span style={{ fontWeight: 600 }}>Try the public demo →</span>
+          </Link>
+        </div>
 
         {/* Footer */}
         <p style={{
