@@ -86,7 +86,7 @@ VETO_COOLDOWN_SECONDS = 3600   # 60 min between veto notifications per (symbol, 
 # are tuned for the global / 24-hour nature of the FX market. One picked at
 # random each morning so the message doesn't get stale.
 REVEILLE_LINES = [
-    # Roman / imperial (consistent with the Praetor swarm naming)
+    # Roman / imperial (consistent with the Foundation swarm naming)
     "The forum trades in seven tongues. Ionic listens to them all.",
     "Dawn over the empire. The ledger turns.",
     "Ave, Caesar. Another orbit complete.",
