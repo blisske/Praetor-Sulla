@@ -254,6 +254,25 @@ function parseVerdict(verdict) {
   }
 }
 
+// Classifies one supporting-signal reason string (the prefix-stripped value from
+// parseVerdict) the way core/strategy.py scored it: 'pass' = the signal confirmed
+// and added to consensus, 'fail' = it did not, 'warn' = borderline/unknown. Kept
+// in lockstep with the reason words strategy.py emits — RSI SURGING/RISING/DIR OK
+// and ADX STRONG+RISING/LOW+FALLING/"…ranging confirmed" all pass. If the engine
+// grows a new reason word, add it here in all three sibling dashboards.
+function signalStatus(kind, value) {
+  if (!value) return 'warn'
+  const v = value.toUpperCase()
+  if (kind === 'VOL') return /^OK\b/.test(v) ? 'pass' : /UNKNOWN/.test(v) ? 'warn' : 'fail'
+  if (kind === 'RSI') return /^(SURGING|RISING|DIR OK)/.test(v) ? 'pass' : 'fail'
+  if (kind === 'ADX') {
+    if (/^(STRONG\+RISING|LOW\+FALLING)|RANGING CONFIRMED/.test(v)) return 'pass'
+    if (/FADING/.test(v)) return 'warn'
+    return 'fail'
+  }
+  return 'warn'
+}
+
 function StatusIcon({ status }) {
   if (status === 'pass') return <Check size={14} style={{ color: '#22c55e' }} />
   if (status === 'fail') return <X size={14} style={{ color: '#f87171' }} />
@@ -295,12 +314,6 @@ function AnatomyPanel({ trade }) {
     )
   }
 
-  // VOL: "OK ..." passes, anything else fails (per strategy.py:163-167)
-  const volPass = /^OK\b/.test(parsed.vol)
-  // RSI: RISING passes for long entries (Ionic aborts on BEARISH so all entries are long)
-  const rsiPass = /^RISING/i.test(parsed.rsi)
-  // ADX: regime-appropriate strength passes (per strategy.py:187-200)
-  const adxPass = /STRONG\+RISING|LOW\+FALLING/.test(parsed.adx)
   // AI verdict — BULLISH = pass, BEARISH would have aborted, NEUTRAL = warn
   const aiStatus = parsed.aiVerdict === 'BULLISH' ? 'pass'
                  : parsed.aiVerdict === 'BEARISH' ? 'fail'
@@ -328,9 +341,9 @@ function AnatomyPanel({ trade }) {
 
       <div>
         <AnatomyRow index={1} label="Paradigm Fired"   value={trade.strategy}        status="pass" />
-        <AnatomyRow index={2} label="Volume Support"   value={parsed.vol}            status={volPass ? 'pass' : 'fail'} />
-        <AnatomyRow index={3} label="RSI Direction"    value={parsed.rsi}            status={rsiPass ? 'pass' : 'fail'} />
-        <AnatomyRow index={4} label="ADX Conviction"   value={parsed.adx}            status={adxPass ? 'pass' : 'fail'} />
+        <AnatomyRow index={2} label="Volume Support"   value={parsed.vol}            status={signalStatus('VOL', parsed.vol)} />
+        <AnatomyRow index={3} label="RSI Direction"    value={parsed.rsi}            status={signalStatus('RSI', parsed.rsi)} />
+        <AnatomyRow index={4} label="ADX Conviction"   value={parsed.adx}            status={signalStatus('ADX', parsed.adx)} />
         <AnatomyRow index={5} label="AI Verdict"       value={parsed.aiVerdict || '—'} status={aiStatus} />
       </div>
 
@@ -446,7 +459,7 @@ export default function Dashboard() {
         <StatCard
           label={<>Shadow Equity <HelpTip text="Simulated portfolio value based on paper trade P&L. Starts at configured initial capital." /></>}
           value={`$${shadowEquity.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })}`}
-          sub={`Started at $${equity?.initial_capital?.toLocaleString() ?? '25,000'}`}
+          sub={`Started at $${equity?.initial_capital?.toLocaleString() ?? '—'}`}
           icon={DollarSign} color="accent"
         />
         <StatCard
