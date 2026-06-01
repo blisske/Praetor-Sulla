@@ -1,7 +1,20 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-05-25 (+4) (bug-hunt sweep — 5 multi-tenant bugs fixed)
+> Last updated: 2026-06-01 (Anatomy RSI-SURGING fix + frontend parity)
+
+---
+
+## 2026-06-01 — Anatomy panel: RSI SURGING mis-render fixed (frontend parity)
+
+The shared `AnatomyPanel` RSI check (`/^RISING/`) rendered the engine's
+`RSI SURGING (+N)` — frequent in real Ionic data (USD/JPY etc.) — as a red FAIL
+even on entered trades. Replaced the inline `volPass/rsiPass/adxPass` with a shared
+`signalStatus()` covering every VOL/RSI/ADX reason string `core/strategy.py` emits.
+Keeps the 3 SCORE-tag dashboards (Corinthian/Doric/Ionic) anatomy code identical;
+initial-capital fallback standardized to "—". Commit `3f7603a`. The cross-bot
+drift detector now scans `web/src/pages/Dashboard.jsx`, so a future parser
+divergence is Telegram-alerted (Foundation-Scripts `1a32a10`).
 
 ---
 
