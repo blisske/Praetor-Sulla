@@ -41,6 +41,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -60,6 +61,20 @@ DELETED_DIR      = USER_DATA_DIR / "_deleted"
 AUDIT_LOG_PATH   = Path(os.environ.get("PROVISIONER_AUDIT_LOG", str(QUEUE_DIR / "audit.log")))
 
 POLL_INTERVAL    = float(os.environ.get("PROVISIONER_POLL_SEC", "5"))
+
+# ── Orphan GC (safety-net reconcile) ───────────────────────────────────────
+# The queue is event-driven: a per-user engine is only torn down if a
+# .teardown flag is dropped. A user deleted OUT OF BAND (a straight DB delete,
+# a delete path that forgot to enqueue teardown, or a teardown that half-failed)
+# leaves the fragment + data dir behind — and on the next swarm restart that
+# engine crash-loops (its Config.yaml is gone). This GC reconciles: any fragment
+# whose user no longer exists in global.db is torn down via teardown(). Ported
+# 2026-06-05 from Corinthian, where 11 such orphans crash-looped on a restart.
+GC_ENABLED              = os.environ.get("PROVISIONER_GC", "1").strip() not in ("0", "false", "False")
+GC_INTERVAL_SEC         = float(os.environ.get("PROVISIONER_GC_INTERVAL_SEC", "300"))
+# Don't GC a fragment younger than this — avoids racing a just-provisioned
+# engine whose global.db row write is momentarily behind its fragment.
+GC_MIN_FRAGMENT_AGE_SEC = float(os.environ.get("PROVISIONER_GC_MIN_AGE_SEC", "600"))
 
 # Image tag the per-user containers point at. Built from this repo's
 # Dockerfile target=engine; one shared image for all users.
@@ -355,6 +370,73 @@ def teardown(user_id: int, *, dry_run: bool = False) -> bool:
     return True
 
 
+# ─── Orphan garbage-collection (safety-net reconcile) ──────────────────────
+
+
+def _valid_user_ids() -> Optional[set[int]]:
+    """Set of user IDs that currently EXIST (not soft-deleted) in global.db.
+
+    Returns None on any read failure OR an empty result. Callers treat None as
+    'unknown — do not GC', so a transient DB error or an empty read can never
+    trigger a mass teardown of live tenants. Fails CLOSED."""
+    db = FOUNDATION_DATA_DIR / "global.db"
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        try:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
+            sql = ("SELECT id FROM users WHERE deleted_at IS NULL"
+                   if "deleted_at" in cols else "SELECT id FROM users")
+            ids = {int(r[0]) for r in con.execute(sql)}
+        finally:
+            con.close()
+    except Exception as e:
+        logger.warning(f"GC: cannot read global.db users ({e}); skipping GC this pass")
+        return None
+    if not ids:
+        logger.warning("GC: global.db returned 0 users; skipping GC (treated as a read anomaly)")
+        return None
+    return ids
+
+
+def gc_orphans(*, dry_run: bool = False) -> int:
+    """Tear down per-user engines whose user no longer exists in global.db.
+
+    The safety net for deletions that never enqueued a .teardown flag.
+    Conservative by construction:
+      • bails entirely if global.db is unreadable or returns 0 users (fail-closed)
+      • ignores fragments younger than GC_MIN_FRAGMENT_AGE_SEC (avoids racing a
+        fresh provision whose user row write is momentarily behind)
+      • reuses teardown() so the orphan is archived to _deleted/ (never hard-
+        deleted) and journaled to the audit log exactly like a normal teardown.
+    Returns the number of orphan engines reconciled."""
+    valid = _valid_user_ids()
+    if valid is None:
+        return 0
+    USERS_FRAGMENTS.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    removed = 0
+    for frag in sorted(USERS_FRAGMENTS.glob("*.yml")):
+        try:
+            uid = int(frag.stem)
+        except ValueError:
+            continue
+        if uid in valid:
+            continue  # real, current user — leave it alone
+        age = now - frag.stat().st_mtime
+        if age < GC_MIN_FRAGMENT_AGE_SEC:
+            logger.info(f"GC: {frag.name} → user {uid} absent from global.db, but fragment is "
+                        f"only {age:.0f}s old (<{GC_MIN_FRAGMENT_AGE_SEC:.0f}s); deferring")
+            continue
+        logger.warning(f"GC: user {uid} no longer in global.db — tearing down orphan engine "
+                       f"(fragment age {age:.0f}s)")
+        audit("gc_orphan", uid, True, detail=f"user_absent_from_global_db; age={age:.0f}s")
+        teardown(uid, dry_run=dry_run)
+        removed += 1
+    if removed:
+        logger.info(f"GC: reconciled {removed} orphan engine(s)")
+    return removed
+
+
 # ─── Queue scan ────────────────────────────────────────────────────────────
 
 
@@ -437,17 +519,22 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.once:
         n = process_queue(dry_run=args.dry_run)
-        logger.info(f"Single-pass complete: processed {n} flag(s)")
+        g = gc_orphans(dry_run=args.dry_run) if GC_ENABLED else 0
+        logger.info(f"Single-pass complete: processed {n} flag(s), reconciled {g} orphan(s)")
         return 0
 
     # Long-running loop. systemd handles restart-on-failure.
+    last_gc = 0.0
     while True:
         try:
             n = process_queue(dry_run=args.dry_run)
             if n:
                 logger.info(f"Processed {n} flag(s)")
+            if GC_ENABLED and (time.monotonic() - last_gc) >= GC_INTERVAL_SEC:
+                gc_orphans(dry_run=args.dry_run)
+                last_gc = time.monotonic()
         except Exception:
-            logger.exception("process_queue() failed; sleeping then retrying")
+            logger.exception("process_queue()/gc_orphans() failed; sleeping then retrying")
         time.sleep(POLL_INTERVAL)
 
 
