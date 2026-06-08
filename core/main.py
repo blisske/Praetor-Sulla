@@ -861,9 +861,14 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
             )
             _mark_veto_notified(sym, paradigm)
         return
+    # 2+1+1 (Design Pillar 2): the BEARISH veto above is the ONLY AI gate.
+    # BULLISH / NEUTRAL / AI-offline(→NEUTRAL) all PASS — AI is a veto layer,
+    # NOT a required bullish confirmation. Gating on is_bullish here silently
+    # froze every entry whenever Gemma returned NEUTRAL or was unreachable
+    # (the 0-trades-for-7-days class of bug). Log the non-bullish pass for
+    # observability, but proceed.
     if not is_bullish:
-        logger.info(f"[{sym}] AI {verdict_str} on {paradigm} — not bullish, holding")
-        return
+        logger.info(f"[{sym}] AI {verdict_str} ({paradigm}) — not BEARISH, proceeding")
 
     risk_cfg = config.get('risk', {})
     initial_stop_mult = config.get('ratchet', {}).get('initial_stop_mult', 2.0)
