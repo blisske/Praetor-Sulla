@@ -1,7 +1,39 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-06-01 (Anatomy RSI-SURGING fix + frontend parity)
+> Last updated: 2026-06-08 (QC sweep: AI-gate freeze fix + daily-loss breaker wired)
+
+---
+
+## 2026-06-08 — QC sweep: AI-gate freeze fix + dead daily-loss breaker wired (shadow)
+
+From the cross-bot QC fan-out (after Corinthian's 0-trades bug). Two silent gaps,
+pushed to `saas-multi-tenant`:
+
+- **AI gate required BULLISH (`core/main.py:864`, `2821378`).** `_evaluate_entry`
+  did `if not is_bullish: return`, blocking NEUTRAL + AI-offline (`get_ai_consensus`
+  → NEUTRAL on LLM failure). The BEARISH veto above is the only AI gate Pillar 2
+  sanctions; this extra block silently froze every entry whenever Gemma returned
+  NEUTRAL or was down — the same 0-trades class as Corinthian. Removed the block
+  (NEUTRAL/BULLISH/offline now pass). ⚠️ trades on NEUTRAL + AI-offline at the live
+  flip — **confirm the live policy before `shadow_mode:false`.**
+- **Daily session-loss breaker was dead code (`core/main.py` + live `Config.yaml`,
+  `e1a3d78`).** `risk_state.daily_halt` was read in `/report` + cleared by
+  `/resume`, but **nothing ever set it** — an Ionic account could lose any amount
+  intraday with no halt (only the slower 25%-from-all-time-peak halt would catch
+  it). The shipped `core/daily_risk.py` is an **incompatible orphan** (it calls
+  `db.get_daily_baseline`/`set_daily_baseline`, which Ionic's `database.py` never
+  implemented — wiring it would `AttributeError` every cycle; now banner-marked
+  NOT-WIRED, its unit tests still pass with a fake db). Ported **Doric's inline
+  circuit** instead, using the `risk_state.{session_date,session_start_equity,
+  daily_halt}` columns Ionic actually has: capture session-start equity per ET day,
+  block new entries after a `-daily_session_loss_pct` (3%) intraday loss, auto-clear
+  next session, `/resume` clears. Added `daily_session_loss_pct: 3.0` to the live
+  risk config (tenants inherit the 3% code default). Verified live: engine logs
+  `[SESSION] New session 2026-06-08: start equity $9,987.90`.
+
+Both deployed (operator + tenant engines `124`/`125` recreated onto the fixed
+image), healthy, 0 boot errors.
 
 ---
 
