@@ -1054,6 +1054,21 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
     shadow_cash   = snap.get('cash', 0.0)
     shadow_equity = snap.get('equity', 0.0)
 
+    # --- SESSION-START EQUITY CAPTURE ---
+    # Baseline for the daily session-loss circuit below. Captured once per ET
+    # calendar day; resets daily_halt at the rollover. (FX rolls at 17:00 ET;
+    # ET-midnight is a close-enough daily-loss boundary and matches Doric's
+    # mechanism — refine to a 17:00 cut later if the soak shows it matters.)
+    _et_today = datetime.datetime.now(pytz.timezone('America/New_York')).date().isoformat()
+    _rs0 = database.get_risk_state()
+    if _rs0.get('session_date') != _et_today:
+        database.update_risk_state(
+            session_date=_et_today,
+            session_start_equity=shadow_equity,
+            daily_halt=False,
+        )
+        logger.info(f"[SESSION] New session {_et_today}: start equity ${shadow_equity:,.2f}")
+
     # --- TIERED DRAWDOWN STATE MACHINE ---
     # Peak-based: NORMAL → ALERT → DERISK → HALT, with hysteresis on DERISK exit.
     # Parity with Anton/Tiberius. HALT cleared only by /resume.
@@ -1106,6 +1121,32 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
     # HALT short-circuits new entries. Open positions keep ratcheting through
     # the shadow exit engine that already ran above.
     if target_mode == 'HALT':
+        return
+
+    # ── DAILY SESSION LOSS CIRCUIT ─────────────────────────────────────────
+    # Independent of the all-time-peak ladder above: blocks NEW entries after a
+    # hard intraday loss whose drawdown doesn't breach the all-time-peak halt
+    # (e.g. -X% since session open but still only -5% from the all-time peak).
+    # Auto-clears at the next ET session (capture above); /resume also clears.
+    # Open positions keep their normal exit logic. This was a NO-OP in Ionic
+    # until now — daily_halt was read in /report + cleared by /resume but
+    # NOTHING ever set it. (QC 2026-06-08; ports Doric's inline circuit.)
+    if not risk_state.get('daily_halt') and risk_state.get('session_start_equity'):
+        sse       = risk_state['session_start_equity']
+        daily_dd  = (sse - shadow_equity) / sse * 100 if sse > 0 else 0.0
+        daily_lim = risk_cfg.get('daily_session_loss_pct', 3.0)
+        if daily_dd >= daily_lim:
+            database.update_risk_state(daily_halt=True)
+            risk_state['daily_halt'] = True
+            logger.warning(f"DAILY SESSION LOSS: {daily_dd:.2f}% from session start — entries blocked")
+            await _notify(
+                f"🛑 <b>DAILY SESSION LOSS LIMIT</b>\n"
+                f"Session down <b>{daily_dd:.2f}%</b> from open "
+                f"(${sse:,.2f} → ${shadow_equity:,.2f}).\n"
+                f"Limit: {daily_lim}%. New entries blocked for the rest of the session.\n"
+                f"Open positions follow normal exit logic. Auto-resumes next session."
+            )
+    if risk_state.get('daily_halt'):
         return
 
     # DERISK halves the effective equity passed to sizing — math is equivalent

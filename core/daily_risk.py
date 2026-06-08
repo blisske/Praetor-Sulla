@@ -1,5 +1,17 @@
 """Daily-drawdown circuit breaker.
 
+⚠️ NOT WIRED INTO IONIC'S LIVE ENGINE (QC 2026-06-08). Ionic's actual daily-loss
+breaker is the inline session-loss circuit in core/main.py `_run_cycle`, which
+uses the risk_state.{session_date,session_start_equity,daily_halt} columns that
+Ionic's database.py actually implements. THIS module uses a different DB
+contract — db.get_daily_baseline / db.set_daily_baseline — which Ionic's
+database.py does NOT have, so evaluate() against the real DB raises
+AttributeError. It is retained only for its standalone unit tests
+(tests/test_daily_risk.py inject a fake db). Do NOT wire this in without first
+porting the baseline helpers into database.py — the inline circuit already
+covers the live need. (Corinthian DOES use this module; its database.py has the
+baseline helpers.)
+
 Independent of the existing peak-drawdown system. Catches the case where
 a user has a single bad day that doesn't exceed the all-time peak
 drawdown threshold (e.g., dropped 15% from yesterday but only 5% from
