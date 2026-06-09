@@ -1,7 +1,20 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-06-09 (Tier 0 data integrity: USD-base P&L bug family fixed + backfilled)
+> Last updated: 2026-06-09 (Tier 1: dead-zone threshold port + 20% cap + TP yield gate)
+
+---
+
+## 2026-06-09 (later) — Tier 1: dead-zone tune + sizing cap + TP gate
+
+Live data/Config.yaml (operator-approved): **adx_trend_threshold 30→22**
+(76.5% of Ionic's scan cycles were dead — RANGING + RSI above every entry;
+0 TF and 0 MR trades ever), **TF rsi_entry 45→55**, **MR rsi_entry 30→35**,
+**position_size_max_pct 12→20**. Code: **mid-BB TP yield gate configurable**
+(`strategy.tp_min_yield_pct`, default 2.0; live 0.1) — all 22 Ionic closes
+were stop-hits partly because the Kraken-era 2% gate blocked the designed
+mid-BB take-profit on FX-scale moves. Verified live post-restart: AUD/USD
+reads TRENDING at ADX 23.4 (impossible under the old gate).
 
 ---
 

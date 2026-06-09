@@ -260,7 +260,12 @@ def check_exit_signals(indicators, strategy_type, current_stop_price,
                 'reason': f'Upper BB resistance hit. Real yield: {real_yield:.1f}%'
             }
 
-        if price >= indicators['bb_middle'] and real_yield > 2.0:
+        # Mid-BB TP yield gate — configurable (2026-06-09 Tier 1). The old
+        # hardcoded 2.0% was calibrated for Kraken's 40bp legs; on Oanda's
+        # ~1bp spread-cost it sat far beyond the mid-BB target itself, so the
+        # designed MR/LS take-profit could never fire.
+        tp_min_yield = float((config or {}).get('strategy', {}).get('tp_min_yield_pct', 2.0))
+        if price >= indicators['bb_middle'] and real_yield > tp_min_yield:
             if ppt_enabled and not partial_exit_taken:
                 return {
                     'action': 'PARTIAL_TAKE_PROFIT',
