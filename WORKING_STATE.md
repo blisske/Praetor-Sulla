@@ -1,7 +1,21 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-06-09 (Tier 1: dead-zone threshold port + 20% cap + TP yield gate)
+> Last updated: 2026-06-09 (Tier 2: AI-veto ghost ledger + per-bar verdict cache + tuner advisory)
+
+---
+
+## 2026-06-09 (later still) — Tier 2: ghost ledger + verdict cache + advisory tuner
+
+- **AI-veto counterfactual ledger** (`core/counterfactuals.py`): every BEARISH
+  veto opens a "ghost position" managed each cycle by a replica of Ionic's
+  exit rules; pnl recorded in PERCENT (currency-neutral — sidesteps USD-base
+  conversion). Readout: `~/swarm/scripts/analytics/veto_readout.py`.
+- **Per-bar verdict cache**: one Gemma consult per (symbol, paradigm) per 1h
+  bar (was ~12 re-rolls/bar at temperature).
+- **Tuner advisory mode** (`tuning.advisory_only: true`): promotions notify
+  only, never auto-apply (audit B1/B2) — especially important here since the
+  tuner was optimizing the corrupted USD-base P&L column until today's fix.
 
 ---
 

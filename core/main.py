@@ -845,16 +845,30 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
         logger.warning(f"[{sym}] AI layer not configured — skipping entry")
         return
 
-    try:
-        is_bullish, verdict_str, verdict_body = await ai_brain.get_ai_consensus(
-            symbol=sym, price=d['price'], strategy_type=paradigm,
-            indicators=d, supporting_reasons=sup_reasons,
-            brave_key=brave_key, llm_base_url=llm_base, model_id=model_id,
-            use_reasoning=use_reason,
-        )
-    except Exception as e:
-        logger.error(f"[{sym}] AI verdict raised: {e}")
-        return
+    # Per-bar AI verdict cache (2026-06-09 Tier 2): one consult per
+    # (symbol, paradigm) per 1h bar. Re-consulting every 5-min cycle re-rolled
+    # the dice at sampling temperature — a borderline setup got ~12 draws/bar
+    # and entered on the first non-BEARISH, polluting the veto measurement
+    # and burning Brave/GPU. Offline verdicts are never cached.
+    _vc = globals().setdefault('_AI_VERDICT_CACHE', {})
+    _vk = (sym, paradigm)
+    _vhit = _vc.get(_vk)
+    if _vhit and time.monotonic() < _vhit[0]:
+        is_bullish, verdict_str, verdict_body = _vhit[1]
+        logger.info(f"[{sym}] AI verdict (cached): {verdict_str}")
+    else:
+        try:
+            is_bullish, verdict_str, verdict_body = await ai_brain.get_ai_consensus(
+                symbol=sym, price=d['price'], strategy_type=paradigm,
+                indicators=d, supporting_reasons=sup_reasons,
+                brave_key=brave_key, llm_base_url=llm_base, model_id=model_id,
+                use_reasoning=use_reason,
+            )
+        except Exception as e:
+            logger.error(f"[{sym}] AI verdict raised: {e}")
+            return
+        if 'AI GATE OFFLINE' not in verdict_body:
+            _vc[_vk] = (time.monotonic() + 3600, (is_bullish, verdict_str, verdict_body))
 
     if bear_abort and verdict_str.startswith('BEARISH'):
         logger.info(f"[{sym}] BEARISH VETO ({paradigm}): aborting entry")
@@ -864,6 +878,13 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
         # audit had zero Ionic abort data to judge the AI layer with.
         database.log_trade(sym, 'BEARISH ABORT', d['price'], 0, paradigm,
                            f"[SCORE:{consensus_score}/{min_consensus}] {verdict_body}"[:300])
+        # Tier 2 ghost ledger: track what the vetoed entry would have done
+        # under the real exit rules (counterfactuals.py).
+        try:
+            from core import counterfactuals
+        except ImportError:
+            import counterfactuals
+        counterfactuals.open_ghost(sym, paradigm, verdict_str, d, config)
         # Notify only if outside the cooldown window — same setup re-vetoing in
         # successive cycles would otherwise spam Telegram (USD/JPY 19:36 / 19:47
         # / 19:53 etc.). Full verdict body, no truncation; the get_ai_consensus
@@ -1056,6 +1077,14 @@ async def _run_cycle(config: dict, symbols: list[str], timeframe: str) -> None:
         await _run_exit_engine(config, latest, shadow_mode=shadow_mode)
     except Exception as e:
         logger.error(f"Exit engine failed: {e}", exc_info=True)
+
+    # Tier 2: manage open AI-veto ghosts with this cycle's data.
+    try:
+        from core import counterfactuals
+    except ImportError:
+        import counterfactuals
+    for _gsym, _gd in latest.items():
+        counterfactuals.update_ghosts_for_symbol(_gsym, _gd, config)
 
     if not config.get('strategy', {}).get('autonomous_mode', True):
         return

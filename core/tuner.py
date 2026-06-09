@@ -426,11 +426,28 @@ def check_promotions(symbol):
             improved = (current_metric - baseline_metric) >= (baseline_metric * min_imp)
 
         if improved:
-            database.update_tuning_status(snap['tuning_log_id'], 'PROMOTED_LIVE')
-            _apply_to_config(snap['symbol'], snap['parameter'], snap['candidate_value'])
-            msg = (f"✅ TUNER PROMOTED: {snap['symbol']}/{snap['parameter']} "
-                   f"{snap['baseline_value']} -> {snap['candidate_value']} "
-                   f"({metric_key}: {baseline_metric:.2f} -> {current_metric:.2f})")
+            # Tier 2 (2026-06-09 audit B1/B2): the validation window never runs
+            # the CANDIDATE (the 10 "validation" trades execute under the OLD
+            # value), and a +5% PF margin over n=10 fires ~49% of the time on
+            # pure noise — auto-applying ratifies regime luck. With
+            # tuning.advisory_only (the live default), the promotion is
+            # recorded + Telegram-notified but Config.yaml is NOT touched.
+            try:
+                from core import config_manager as _cm
+            except ImportError:
+                import config_manager as _cm
+            _advisory = bool((_cm.load_engine_config().get('tuning', {}) or {}).get('advisory_only', False))
+            if _advisory:
+                database.update_tuning_status(snap['tuning_log_id'], 'PROMOTED_ADVISORY')
+                msg = (f"🟡 TUNER ADVISORY (not applied): {snap['symbol']}/{snap['parameter']} "
+                       f"{snap['baseline_value']} -> {snap['candidate_value']} "
+                       f"({metric_key}: {baseline_metric:.2f} -> {current_metric:.2f})")
+            else:
+                database.update_tuning_status(snap['tuning_log_id'], 'PROMOTED_LIVE')
+                _apply_to_config(snap['symbol'], snap['parameter'], snap['candidate_value'])
+                msg = (f"✅ TUNER PROMOTED: {snap['symbol']}/{snap['parameter']} "
+                       f"{snap['baseline_value']} -> {snap['candidate_value']} "
+                       f"({metric_key}: {baseline_metric:.2f} -> {current_metric:.2f})")
         else:
             database.update_tuning_status(snap['tuning_log_id'], 'REJECTED')
             msg = (f"❌ TUNER REJECTED: {snap['symbol']}/{snap['parameter']} "
