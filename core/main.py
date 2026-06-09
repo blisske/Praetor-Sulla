@@ -327,8 +327,7 @@ async def _reconcile_live_positions(open_db_positions: list[dict],
 
         # Approximate P&L from current price (NOT exact — Oanda's records
         # are authoritative for the actual fill price).
-        pnl_usd = (fx_math.position_notional_usd(sym, units, close_price)
-                   - fx_math.position_notional_usd(sym, units, entry_price))
+        pnl_usd = fx_math.realized_pnl_usd(sym, units, entry_price, close_price)
         pnl_pct = ((close_price - entry_price) / entry_price * 100) if entry_price else 0.0
         verdict = (f'RECONCILED: position no longer on Oanda. '
                    f'Approximate P&L from current price: {pnl_pct:+.2f}%. '
@@ -405,14 +404,24 @@ async def _run_exit_engine(config: dict, latest_indicators: dict,
         # Live mode: skip — Oanda's server-side attached stop has already
         # fired (or hasn't yet), and reconciliation above will have closed
         # the DB row if Oanda did fill. We never simulate stop hits in live.
-        if shadow_mode and cur_stop > 0 and price <= cur_stop:
-            pnl_usd = (fx_math.position_notional_usd(sym, units, cur_stop)
-                       - fx_math.position_notional_usd(sym, units, entry_price))
-            pnl_pct = ((cur_stop - entry_price) / entry_price * 100) if entry_price else 0.0
+        # Stop-hit realism (2026-06-09 audit): trigger on the bar LOW so an
+        # intrabar wick through the stop registers (Oanda's server-side stop
+        # would have filled live), and fill at min(stop, close) so a gap
+        # through the stop fills at the worse market price instead of a
+        # fantasy fill at the stop. Mirrors Pantheon's shadow engine.
+        if shadow_mode and cur_stop > 0 and min(d.get('low', price), price) <= cur_stop:
+            fill = min(cur_stop, price)
+            pnl_usd = fx_math.realized_pnl_usd(sym, units, entry_price, fill)
+            pnl_pct = ((fill - entry_price) / entry_price * 100) if entry_price else 0.0
             verdict = f'STOP HIT: {pnl_pct:.2f}%'
-            database.log_trade(sym, 'SHADOW SELL', cur_stop, round(pnl_usd, 2),
+            database.log_trade(sym, 'SHADOW SELL', fill, round(pnl_usd, 2),
                                entry_strat, verdict)
-            database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, cur_stop))
+            # Credit = entry notional (what was debited) + realized P&L. The
+            # old notional-at-exit credit was identical for USD-quote pairs
+            # but returned exactly the debit for USD-base, erasing P&L from
+            # the cash ledger.
+            database.adjust_shadow_cash(
+                fx_math.position_notional_usd(sym, units, entry_price) + pnl_usd)
             database.close_open_position(sym)
             _try_promote_tunings(sym)
             dir_emoji = "🟢" if pnl_pct > 0 else ("🔴" if pnl_pct < 0 else "⚪")
@@ -456,14 +465,14 @@ async def _run_exit_engine(config: dict, latest_indicators: dict,
                 new_stop = entry_price if ppt_cfg.get('move_stop_to_breakeven', True) else None
 
                 if shadow_mode:
-                    partial_pnl_usd = (fx_math.position_notional_usd(sym, units_to_sell, price)
-                                       - fx_math.position_notional_usd(sym, units_to_sell, entry_price))
+                    partial_pnl_usd = fx_math.realized_pnl_usd(sym, units_to_sell, entry_price, price)
                     database.log_trade(
                         sym, 'SHADOW PARTIAL SELL', price, round(partial_pnl_usd, 2),
                         entry_strat, f'PARTIAL TP: {pnl_pct:.2f}% on {sell_pct*100:.0f}%',
                         position_size_usd=fx_math.position_notional_usd(sym, units_to_sell, entry_price),
                     )
-                    database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units_to_sell, price))
+                    database.adjust_shadow_cash(
+                        fx_math.position_notional_usd(sym, units_to_sell, entry_price) + partial_pnl_usd)
                     database.mark_partial_exit(sym, remaining_units, remaining_size_usd, new_stop=new_stop)
                     logger.info(
                         f"[{sym}] 💵 SHADOW PARTIAL TP | {entry_strat} · sold {units_to_sell:,} units "
@@ -522,12 +531,12 @@ async def _run_exit_engine(config: dict, latest_indicators: dict,
         if exit_cmd.get('action') == 'TAKE_PROFIT':
             pnl_pct = ((price - entry_price) / entry_price * 100) if entry_price else 0.0
             if shadow_mode:
-                pnl_usd = (fx_math.position_notional_usd(sym, units, price)
-                           - fx_math.position_notional_usd(sym, units, entry_price))
+                pnl_usd = fx_math.realized_pnl_usd(sym, units, entry_price, price)
                 verdict = f'TAKE PROFIT: {pnl_pct:.2f}%'
                 database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
                                    entry_strat, verdict)
-                database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
+                database.adjust_shadow_cash(
+                    fx_math.position_notional_usd(sym, units, entry_price) + pnl_usd)
                 database.close_open_position(sym)
                 _try_promote_tunings(sym)
                 logger.info(
@@ -849,6 +858,12 @@ async def _evaluate_entry(sym: str, d: dict, config: dict,
 
     if bear_abort and verdict_str.startswith('BEARISH'):
         logger.info(f"[{sym}] BEARISH VETO ({paradigm}): aborting entry")
+        # Audit trail (2026-06-09): persist every AI veto as a BEARISH ABORT
+        # row (amount=0 — excluded from all %SELL% accounting) so the veto's
+        # hit-rate is measurable. Only Doric logged these; the trading-logic
+        # audit had zero Ionic abort data to judge the AI layer with.
+        database.log_trade(sym, 'BEARISH ABORT', d['price'], 0, paradigm,
+                           f"[SCORE:{consensus_score}/{min_consensus}] {verdict_body}"[:300])
         # Notify only if outside the cooldown window — same setup re-vetoing in
         # successive cycles would otherwise spam Telegram (USD/JPY 19:36 / 19:47
         # / 19:53 etc.). Full verdict body, no truncation; the get_ai_consensus
@@ -1673,13 +1688,13 @@ async def cmd_confirm_kill(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 price = d['price']
                 entry = pos['entry_price']
                 units = pos.get('shares', 0.0)
-                pnl_usd = (fx_math.position_notional_usd(sym, units, price)
-                           - fx_math.position_notional_usd(sym, units, entry))
+                pnl_usd = fx_math.realized_pnl_usd(sym, units, entry, price)
                 pnl_pct = ((price - entry) / entry * 100) if entry else 0.0
                 database.log_trade(sym, 'SHADOW SELL', price, round(pnl_usd, 2),
                                    pos.get('strategy', '?'),
                                    f'KILL SWITCH: {pnl_pct:.1f}%')
-                database.adjust_shadow_cash(fx_math.position_notional_usd(sym, units, price))
+                database.adjust_shadow_cash(
+                    fx_math.position_notional_usd(sym, units, entry) + pnl_usd)
                 database.close_open_position(sym)
                 _try_promote_tunings(sym)
                 closed += 1

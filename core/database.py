@@ -1213,7 +1213,8 @@ def update_risk_state(**fields):
         })
 
 
-def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
+def _fx_position_value_usd(symbol: str, units: float, price: float,
+                           entry_price: float | None = None) -> float:
     """
     Mark-to-market value of an FX position in USD.
 
@@ -1232,16 +1233,22 @@ def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
     Cross-rate FX (no USD leg, e.g. EUR/GBP) would need triangulation; not
     relevant for Ionic's 7-major universe (all pairs include USD).
 
-    NOTE: This treats positions as held-asset value, not full directional PnL.
-    For USD-base pairs that means PnL contribution from rate movement is not
-    captured here — the position always marks at entry-value. Good enough for
-    drawdown tracking (the primary consumer); a full FX PnL pass would need a
-    separate calc using entry-price vs current-price ratios.
+    2026-06-09 update (trading-logic audit): when `entry_price` is provided,
+    USD-base positions now ALSO carry their unrealized P&L — entry value
+    (1 unit = 1 USD) plus the quote-currency move converted at the current
+    rate: units + units × (price − entry) ÷ price. Without entry_price the
+    old entry-value-only mark is kept (back-compat). This closes the gap
+    where USD/JPY-style positions were invisible to the equity curve and
+    the drawdown ladder until they closed.
     """
     if not symbol:
         return float(units or 0) * float(price or 0)
     if symbol.startswith('USD/'):
-        return float(units or 0)
+        u = float(units or 0)
+        p = float(price or 0)
+        if entry_price and p > 0:
+            return u + u * (p - float(entry_price)) / p
+        return u
     return float(units or 0) * float(price or 0)
 
 
@@ -1267,6 +1274,7 @@ def get_shadow_account_state(latest_prices: dict | None = None) -> dict:
             p['symbol'],
             p['shares'],
             prices.get(p['symbol'], p['entry_price']),
+            entry_price=p['entry_price'],
         )
         for p in positions
     )

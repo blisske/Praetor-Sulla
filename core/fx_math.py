@@ -167,6 +167,31 @@ def calculate_units(
     return max(0, int(units))
 
 
+def realized_pnl_usd(symbol: str, units: float, entry_price: float, exit_price: float) -> float:
+    """
+    Realized USD P&L for a LONG position of `units` base-currency units
+    opened at entry_price and closed at exit_price.
+
+    - USD-quote pairs (EUR/USD …): pnl = units × (exit − entry)  — quote IS USD.
+    - USD-base pairs (USD/JPY …):  profit accrues in the QUOTE currency:
+        pnl_quote = units × (exit − entry); convert at the exit rate:
+        pnl_usd   = units × (exit − entry) ÷ exit
+
+    This is the calculation that `position_notional_usd(exit) −
+    position_notional_usd(entry)` silently got WRONG for USD-base pairs —
+    notional is price-independent there (= units), so every USD/JPY, USD/CHF
+    and USD/CAD close recorded $0.00 P&L (18 of Ionic's first 22 shadow
+    trades; found in the 2026-06-09 trading-logic audit). Use THIS for P&L;
+    use position_notional_usd only for cash debits/position value.
+    """
+    if not units or entry_price <= 0 or exit_price <= 0:
+        return 0.0
+    if quote_currency(symbol) == "USD":
+        return units * (exit_price - entry_price)
+    # USD-base (and, as a fallback, crosses): quote-ccy P&L converted at exit.
+    return units * (exit_price - entry_price) / exit_price
+
+
 def position_notional_usd(symbol: str, units: float, price: float) -> float:
     """
     USD-equivalent notional value of a position. For USD-quote pairs that's

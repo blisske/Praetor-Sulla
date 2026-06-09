@@ -1,7 +1,38 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-06-08 (QC sweep: AI-gate freeze fix + daily-loss breaker wired)
+> Last updated: 2026-06-09 (Tier 0 data integrity: USD-base P&L bug family fixed + backfilled)
+
+---
+
+## 2026-06-09 — Tier 0: USD-base P&L bug family + stop-fill realism + AI-veto audit trail
+
+The trading-logic audit found Ionic's worst data bug: **USD-base pairs
+(USD/JPY, USD/CHF, USD/CAD — 3 of 7 majors) recorded $0.00 P&L on every
+close** — 19 of 23 closed trades. Root cause: every close site computed
+`pnl = position_notional_usd(exit) − position_notional_usd(entry)`, and
+notional for USD-base is price-independent (= units). The cash ledger had
+the same hole (credit = entry debit exactly) and the equity mark a third
+(`_fx_position_value_usd` marks USD-base at entry value — its own NOTE
+admitted it). The soak + tuner were optimizing corrupted data.
+
+Fixes (all shadow):
+- **`fx_math.realized_pnl_usd()`** — correct math both directions (USD-quote:
+  units×Δ; USD-base: units×Δ/exit). Wired into ALL close sites: stop-hit,
+  TP, partial-TP, kill switch, Oanda reconcile.
+- **Cash credit** on close = entry notional + realized P&L (was notional@exit).
+- **Equity mark** (`_fx_position_value_usd` in core/database.py + the api/main.py
+  mirror) now carries USD-base unrealized P&L when entry_price is known.
+- **Backfill**: 19 corrupted rows recomputed from their matched BUYs
+  (+$3.73 net restored to shadow cash → $8,793.18). True Ionic record:
+  −$8.38 gross over 23 closes — matches the audit's independent
+  reconstruction (−$8.36).
+- **Stop-hit realism**: stop triggers on bar LOW (wick = live Oanda fill) and
+  fills at min(stop, close) on gap-through — was close-only at the stop price
+  (optimistic). Mirrors Pantheon.
+- **AI-veto audit trail**: every BEARISH veto now logs a `BEARISH ABORT` row
+  (amount=0, excluded from accounting) so the veto's hit-rate is measurable —
+  the audit had zero Ionic abort data.
 
 ---
 

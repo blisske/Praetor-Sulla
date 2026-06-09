@@ -545,19 +545,27 @@ def _risk_state_snapshot(conn) -> dict:
     }
 
 
-def _fx_position_value_usd(symbol: str, units: float, price: float) -> float:
+def _fx_position_value_usd(symbol: str, units: float, price: float,
+                           entry_price: float | None = None) -> float:
     """
     Mark-to-market value of an FX position in USD. Mirrors the helper in
     core/database.py (same logic — kept here to avoid an import dependency
     from api → core).
 
     - 'X/USD' (USD quote): value = units × price (price is USD per X)
-    - 'USD/X' (USD base):  value = units (each unit is already 1 USD)
+    - 'USD/X' (USD base):  value = units + units × (price − entry) ÷ price
+      when entry_price is known (2026-06-09 fix: USD-base unrealized P&L was
+      invisible — positions marked at entry value until close); plain units
+      otherwise.
     """
     if not symbol:
         return float(units or 0) * float(price or 0)
     if symbol.startswith('USD/'):
-        return float(units or 0)
+        u = float(units or 0)
+        p = float(price or 0)
+        if entry_price and p > 0:
+            return u + u * (p - float(entry_price)) / p
+        return u
     return float(units or 0) * float(price or 0)
 
 
@@ -593,7 +601,8 @@ def _compute_shadow_equity(conn, initial_fallback: float) -> tuple[float, float,
         """).fetchall()
         market_value = sum(
             _fx_position_value_usd(
-                sym, shares, latest if latest is not None else entry
+                sym, shares, latest if latest is not None else entry,
+                entry_price=entry,
             )
             for (sym, shares, entry, latest) in positions
         )
