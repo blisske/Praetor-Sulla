@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-11 (later) — Strategy hunt round 1: ASSET-CLASS verdict for Ionic
+
+The research rig (`~/swarm/scripts/backtest/research/`) ran candidate
+strategies on 7.3yrs of Oanda daily data. Decisive structural finding:
+**equal-weight long-only unleveraged FX majors returned +0.2%/yr at 3.2%
+vol — the benchmark itself is dead money.** No signal engine can harvest
+drift that doesn't exist; the daily liquidity-sweep port and tsmom also
+scored ≈0. Ionic's mandate (long-only, unleveraged, majors) cannot produce
+material returns regardless of strategy. ⚠️ Operator decision: repurpose
+(carry/shorts need a mandate change) or park. See
+`~/swarm/scripts/backtest/research/HUNT-ROUND-1-2026-06-11.md`.
+
+---
+
 ## 2026-06-11 — Structural sweep: dead at all structures; daily-LS hint logged
 
 All 1h/4h cells `no` (PF 0.48-0.81); best daily cell PF 1.32 n=38
