@@ -57,6 +57,10 @@ def check_entry_signals(indicators, config=None):
     mr_cfg = paradigms.get('mean_reversion', {})
     vb_cfg = paradigms.get('volatility_breakout', {})
     ls_cfg = paradigms.get('liquidity_sweep', {})
+    # Per-paradigm enable flags (2026-06-10): paradigms.<key>.enabled, default
+    # true. Added after the walk-forward backtests measured VOLATILITY
+    # BREAKOUT at PF 0.47-0.52 on Corinthian (~75% of all flow) — paradigms
+    # are now benchable per bot, and per symbol via symbol_overrides.
 
     regime = indicators.get('regime', 'RANGING')
     price  = indicators['price']
@@ -94,7 +98,7 @@ def check_entry_signals(indicators, config=None):
     vb_rsi = vb_cfg.get('rsi_entry', 55)
     has_strong_momentum = indicators['rsi'] > vb_rsi
 
-    if is_squeezed and is_breaking_out and has_strong_momentum:
+    if vb_cfg.get('enabled', True) and is_squeezed and is_breaking_out and has_strong_momentum:
         if mtf_enabled and not daily_bull:
             pass  # MTF block — fall through, may still match other paradigms
         else:
@@ -109,7 +113,7 @@ def check_entry_signals(indicators, config=None):
         tf_rsi = tf_cfg.get('rsi_entry', 45)
         is_oversold_dip = indicators['rsi'] < tf_rsi
 
-        if is_bullish_trend and is_oversold_dip:
+        if tf_cfg.get('enabled', True) and is_bullish_trend and is_oversold_dip:
             if mtf_enabled and not daily_bull:
                 pass  # MTF block — fall through
             else:
@@ -125,7 +129,7 @@ def check_entry_signals(indicators, config=None):
         mr_rsi = mr_cfg.get('rsi_entry', 35)
         is_extreme_exhaustion = indicators['rsi'] < mr_rsi
 
-        if is_at_floor and is_extreme_exhaustion:
+        if mr_cfg.get('enabled', True) and is_at_floor and is_extreme_exhaustion:
             return True, "MEAN REVERSION"
 
         # --- PARADIGM D: LIQUIDITY SWEEP ---
@@ -147,7 +151,7 @@ def check_entry_signals(indicators, config=None):
             ls_rsi = ls_cfg.get('rsi_entry', 40)
             is_exhausted = indicators['rsi'] < ls_rsi
 
-            if pierced_floor and closed_inside and is_exhausted:
+            if ls_cfg.get('enabled', True) and pierced_floor and closed_inside and is_exhausted:
                 return True, "LIQUIDITY SWEEP"
 
     return False, "NONE"
