@@ -1,7 +1,28 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-06-09 (Tier 2: AI-veto ghost ledger + per-bar verdict cache + tuner advisory)
+> Last updated: 2026-06-10 (walk-forward: worst NO-GO in fleet — every paradigm < PF 1.0; VB benched; ⚠️ whole-bot direction needs operator decision)
+
+---
+
+## 2026-06-10 — Walk-forward backtest: NO-GO both configs — WORST IN FLEET
+
+Built `scripts/backtest_walkforward.py` (sibling of the other three bots'
+harnesses) and ran the 2×2 on ~10 months of Oanda H1 mid candles (7 majors ×
+4,999 bars — Oanda count cap). **All cells PF 0.47–0.64; 0 of 6 windows above
+PF 1.0; bootstrap 95th 0.57–0.58.** Unlike Corinthian/Doric there is no
+breakeven paradigm: VB 0.49 (65% of flow), TF 0.38, LS 0.57, MR 0.45. 707 of
+752 exits are ATR stops at 21% win. Structural read: long-only unleveraged FX
+majors on H1 with ATR-trail exits is chop-death. Full writeup + options menu:
+`decisions/2026-06-10-walkforward-backtest.md`.
+
+**Action:** VB benched in live `data/Config.yaml`
+(`strategy.paradigms.volatility_breakout.enabled: false`, via the new
+fleet-wide per-paradigm flag in `core/strategy.py`; hot-reloaded, one-line
+revert). ⚠️ **Benching VB does not fix Ionic** — operator decision pending on
+direction: (A) keep soaking as-is, (B) structural rework (H4/D1 bars, wider
+stops — re-run harness first), (C) park entries. Shadow-only; zero capital at
+risk meanwhile.
 
 ---
 
