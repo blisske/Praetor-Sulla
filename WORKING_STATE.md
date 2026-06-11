@@ -5,6 +5,15 @@
 
 ---
 
+## 2026-06-11 — Structural sweep: dead at all structures; daily-LS hint logged
+
+All 1h/4h cells `no` (PF 0.48-0.81); best daily cell PF 1.32 n=38
+inconclusive. Only repeating positive: LIQUIDITY SWEEP on daily bars
+(PF 2.2-4.2, n~8-10 — hint, not evidence; revisit with >=2yrs of chunked H1
+history). See `~/swarm/scripts/backtest/SWEEP-FINDINGS-2026-06-10.md`.
+
+---
+
 ## 2026-06-10 — Walk-forward backtest: NO-GO both configs — WORST IN FLEET
 
 Built `scripts/backtest_walkforward.py` (sibling of the other three bots'
