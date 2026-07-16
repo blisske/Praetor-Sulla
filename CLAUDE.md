@@ -11,8 +11,8 @@
 | Instance | Role | Status |
 |---|---|---|
 | **Doric** | TradFi — Alpaca paper | Shadow mode, live deployment gates open |
-| **Corinthian** | Crypto — Kraken | Shadow mode, live deployment gates open |
-| **Ionic** | FX — Oanda | **Phase 1 scaffold** (this codebase) |
+| **Corinthian** | Crypto — Binance.US | Shadow mode, live deployment gates open |
+| **Ionic** | FX — Oanda | **deployed; shadow-soaking (Oanda)** (this codebase) |
 
 This codebase is **Ionic** specifically. All three bots run as Docker containers
 on the WSL2 host `battlemage` (LAN `192.168.0.135`), orchestrated by the

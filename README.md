@@ -1,16 +1,15 @@
-# Praetor · Ionic
+# Foundation · Ionic
 
-Autonomous **long-only spot FX** trading bot. Third instance of the Praetor
-swarm, alongside [Anton](https://github.com/blisske/Foundation-Doric) (TradFi
-equities) and [Tiberius](https://github.com/blisske/Foundation-Corinthian) (crypto).
+Autonomous **long-only spot FX** trading bot. Third instance of the Foundation
+swarm, alongside [Doric](https://github.com/blisske/Foundation-Doric) (TradFi
+equities) and [Corinthian](https://github.com/blisske/Foundation-Corinthian) (crypto).
 
 ## Status
 
-**Phase 1 — Infrastructure scaffold.** Containers boot, dashboard loads, restart
-flow works end-to-end. No trading logic yet. The engine is a placeholder that
-touches its heartbeat and honors the restart flag; Phase 2 wires in the Oanda
-v20 broker adapter and starts running the 4-paradigm signal engine against
-the FX majors.
+**Deployed; shadow-soaking (Oanda).** Containers boot, dashboard loads, restart
+flow works end-to-end. The engine runs the 4-paradigm signal engine against the
+FX majors through the Oanda v20 broker adapter, with shadow trades and
+backtests logged. Live-capital deployment gates remain the next milestone.
 
 ## Universe
 
@@ -49,7 +48,7 @@ docker exec ionic-api touch /app/data/.restart_engine
 
 ## Architecture
 
-Ionic shares the Praetor stack with Anton and Tiberius — same 4-paradigm signal
+Ionic shares the Foundation stack with Doric and Corinthian — same 4-paradigm signal
 engine (Trend Following, Mean Reversion, Volatility Breakout, Liquidity Sweep),
 same 2+1+1 consensus (paradigm signal + supporting indicators + AI verdict +
 score gate), same self-tuner (10 closes → SHADOW_PENDING → 10 more →
@@ -57,9 +56,9 @@ PROMOTED or REJECTED), same shadow-mode contract.
 
 FX-specific differences:
 
-| Concern | Tiberius (crypto) | Anton (equities) | Ionic (FX) |
+| Concern | Corinthian (crypto) | Doric (equities) | Ionic (FX) |
 |---|---|---|---|
-| Broker | Kraken (CCXT) | Alpaca | Oanda v20 |
+| Broker | Binance.US (CCXT) | Alpaca | Oanda v20 |
 | Hours | 24/7 | 9:30–4 ET, session-aware | 24/5 (Sun 17:00 ET → Fri 17:00 ET) |
 | Timeframe | 1h | 30min | 1h |
 | Sizing | USD notional | Whole shares | Units of base currency |
@@ -79,5 +78,5 @@ FX-specific differences:
 
 ## Sibling repos
 
-- [Praetor-Anton](https://github.com/blisske/Foundation-Doric) — TradFi equities (Alpaca)
-- [Praetor](https://github.com/blisske/Foundation-Corinthian) — crypto (Kraken / Tiberius)
+- [Foundation-Doric](https://github.com/blisske/Foundation-Doric) — TradFi equities (Alpaca)
+- [Foundation-Corinthian](https://github.com/blisske/Foundation-Corinthian) — crypto (Binance.US / Corinthian)
