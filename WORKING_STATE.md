@@ -1,5 +1,7 @@
 # WORKING_STATE.md — Ionic V1 Session Log
 
+> **OPERATING MODEL (read first):** this swarm runs the conductor/minion model — see `~/swarm/CLAUDE.md` §11.4–11.5. Board-first (swarm-ops issues BEFORE any change), minions do multi-step work, TL;DR opens every reply. These rules override any older workflow text below.
+
 > Maintained by Claude. Read at the start of every new conversation.
 > Last updated: 2026-06-10 (walk-forward: worst NO-GO in fleet — every paradigm < PF 1.0; VB benched; ⚠️ whole-bot direction needs operator decision)
 
@@ -2017,4 +2019,4 @@ ionic-api uvicorn boot log.
 3. Never re-open resolved bugs (see CLAUDE.md "Do Not Re-Suggest")
 4. Phase-by-phase approach — propose, approve, execute, verify
 5. Update WORKING_STATE.md before session ends
-6. Commit and push before closing
+6. Commit and push before closing _(SUPERSEDED — see OPERATING MODEL header)_
