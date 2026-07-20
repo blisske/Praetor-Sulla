@@ -1,5 +1,7 @@
 # CLAUDE.md — Ionic / Foundation FX Project Context
 
+> **OPERATING MODEL (read first):** this swarm runs the conductor/minion model — see `~/swarm/CLAUDE.md` §11.4–11.5. Board-first (swarm-ops issues BEFORE any change), minions do multi-step work, TL;DR opens every reply. These rules override any older workflow text below.
+
 > **Read order:** start at `~/swarm/CLAUDE.md` (cross-bot ground truth — host, ports, capability index, standing rules). Then this file (Ionic internals). Then `WORKING_STATE.md` (current state). The swarm-root file covers things that span bots — don't duplicate those facts here.
 
 ---
@@ -290,7 +292,7 @@ with them baked in:
 
 ### After every session
 - Update `WORKING_STATE.md`
-- Commit and push to `github.com/blisske/Foundation-Ionic`
+- Commit and push to `github.com/blisske/Foundation-Ionic` _(SUPERSEDED — see OPERATING MODEL header)_
 
 ### Flag with ⚠️
 Any suggestion that could affect live trading capital. (Ionic is
