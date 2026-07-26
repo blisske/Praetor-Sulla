@@ -41,7 +41,7 @@ def make_success_response(message_id: str = "abc-123") -> MagicMock:
         "Message":     "OK",
         "MessageID":   message_id,
         "SubmittedAt": "2026-05-22T15:00:00Z",
-        "To":          "test@example.com",
+        "To":          "test@x.com",
     }
     return resp
 
@@ -65,7 +65,7 @@ class SendEmailCoreTests(EmailSenderTestBase):
         with patch("core.email_sender.requests.post") as mock_post:
             mock_post.return_value = make_success_response("msg-abc-123")
             result = email_sender.send_email(
-                to="user@example.com",
+                to="user@x.com",
                 subject="Hi",
                 text_body="hello",
             )
@@ -77,7 +77,7 @@ class SendEmailCoreTests(EmailSenderTestBase):
         with patch("core.email_sender.requests.post") as mock_post:
             mock_post.return_value = make_success_response()
             email_sender.send_email(
-                to="user@example.com",
+                to="user@x.com",
                 subject="Test Subject",
                 text_body="Test body",
                 html_body="<p>Test HTML</p>",
@@ -85,7 +85,7 @@ class SendEmailCoreTests(EmailSenderTestBase):
             )
         called_with = mock_post.call_args
         body = called_with.kwargs["json"]
-        self.assertEqual(body["To"], "user@example.com")
+        self.assertEqual(body["To"], "user@x.com")
         self.assertEqual(body["Subject"], "Test Subject")
         self.assertEqual(body["TextBody"], "Test body")
         self.assertEqual(body["HtmlBody"], "<p>Test HTML</p>")
@@ -240,6 +240,42 @@ class LiveModeActivatedTemplateTests(EmailSenderTestBase):
         self.assertIn("wasn't you", body["TextBody"].lower())
         self.assertEqual(body["Tag"], "live-mode-activated")
 
+
+# ─── Undeliverable-recipient guard (swarm-ops #82) ─────────────────────────
+
+
+class UndeliverableGuardTests(EmailSenderTestBase):
+    """The shared foundation/shared/email_guard rules, wired at the chokepoint.
+
+    A suppressed address must never reach Postmark, and must not look like an
+    error to the caller — the old bughunt+ path returned ok=True for exactly
+    that reason and the guard keeps the contract.
+    """
+
+    def test_reserved_domain_never_reaches_postmark(self):
+        with patch("core.email_sender.requests.post") as mock_post:
+            result = email_sender.send_email(
+                "demo.counsel@keystone.example", "subj", "body")
+            mock_post.assert_not_called()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["message_id"], "suppressed")
+
+    def test_test_harness_tags_never_reach_postmark(self):
+        with patch("core.email_sender.requests.post") as mock_post:
+            for bad in ["bughunt+seed@gmail.com", "hist+rk@gmail.com",
+                        "x@example.com", "x@foo.invalid"]:
+                result = email_sender.send_email(bad, "subj", "body")
+                self.assertEqual(result["message_id"], "suppressed", bad)
+            mock_post.assert_not_called()
+
+    def test_legitimate_plus_tag_still_sends(self):
+        """A real subscriber's +tag must NOT be collateral damage."""
+        with patch("core.email_sender.requests.post") as mock_post:
+            mock_post.return_value = make_success_response("msg-real")
+            result = email_sender.send_email(
+                "kevin+test@gmail.com", "subj", "body")
+        mock_post.assert_called_once()
+        self.assertEqual(result["message_id"], "msg-real")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
