@@ -3,7 +3,47 @@
 > **OPERATING MODEL (read first):** this swarm runs the conductor/minion model — see `~/swarm/CLAUDE.md` §11.4–11.5. Board-first (swarm-ops issues BEFORE any change), minions do multi-step work, TL;DR opens every reply. These rules override any older workflow text below.
 
 > Maintained by Claude. Read at the start of every new conversation.
-> Last updated: 2026-06-10 (walk-forward: worst NO-GO in fleet — every paradigm < PF 1.0; VB benched; ⚠️ whole-bot direction needs operator decision)
+> Last updated: 2026-08-02 (Telegram boot resilience ported from Corinthian + token-log redaction; swarm-ops #141/#142)
+
+---
+
+## 2026-08-02 — Telegram boot resilience ported + bot-token log redaction (swarm-ops #141 / #142)
+
+**#141.** Ionic's `main_async()` called a naked `await app.initialize()` —
+the same shape that crash-looped Corinthian 32 times in ~35 minutes when
+Telegram's Bot API stalled for its token (swarm-ops #140). Ported the fix in
+structure: `_DeferredTelegramApp` stand-in, `_register_telegram_handlers()` /
+`_attach_telegram()` / `_telegram_reattach_loop()` split out, `main_async()`
+does 4 bounded attempts (5/15/30s backoff) then degrades — trading loop
+starts anyway, Telegram retries in the background every
+`TELEGRAM_REATTACH_SECONDS` (default 300s). Ionic-specific adaptation
+(flagged in swarm-ops #141 as the reason this isn't a blind copy): Ionic's
+`trading_loop_async()` takes no `app` parameter — every notification call
+site (`_notify()`, `_maybe_send_reveille()`) reaches Telegram through the
+module-level `_bot` global instead, guarded by `if _bot is None: return`. So
+`_bot` is wired to the deferred surface's `.bot` proxy immediately on
+construction (not just once attached) — `_bot` is never None once Telegram
+is configured, so pre-attach sends fall through to the proxy's log-and-drop
+path instead of being silently swallowed by the `is None` guard, and forward
+for real once `attach()` swaps in the live Application. No call-site changes
+needed anywhere else in the file.
+
+**#142.** httpx logs full request URLs at INFO, which for python-telegram-bot
+include the bot token in the path. Added `logging.getLogger("httpx")
+.setLevel(logging.WARNING)` (+ `telegram` / `telegram.ext`) right after the
+logging bootstrap — same one-line fix Pantheon already had, now applied for
+parity across all four bots.
+
+**Verification:** offline — `_DeferredTelegramApp` / `_attach_telegram()` /
+`_telegram_reattach_loop()` extracted via `ast` from this file and exercised
+against a lightweight PTB stand-in (4 assertions: stall returns False with no
+exception, detached surface drops+logs instead of raising, background
+reattach re-attaches once the simulated API recovers, attached surface
+forwards `send_message`) — all passed. httpx-suppression verified by
+simulating the exact log line PTB emits and confirming it never reaches a
+handler once the logger is raised to WARNING. `py_compile` clean repo-wide.
+Not yet deployed/restarted — this is shadow-soaking away-mode territory
+(#127); operator decides the restart window.
 
 ---
 
