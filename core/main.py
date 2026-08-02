@@ -59,6 +59,13 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("ionic")
+# httpx logs full request URLs at INFO — which for python-telegram-bot include
+# the bot TOKEN in the path (POST https://api.telegram.org/bot<TOKEN>/getUpdates).
+# Silence to WARNING so the token never hits container logs / Docker's JSON log
+# files / anything that ships or backs those up. Swarm-ops #142.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
 # ─── Paths + secrets ────────────────────────────────────────────────────────
 HEARTBEAT_PATH    = Path(os.environ.get('HEARTBEAT_PATH',    '/app/data/.engine_heartbeat'))
@@ -1992,34 +1999,86 @@ async def trading_loop_async() -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BOOTSTRAP
+# TELEGRAM BOOT RESILIENCE (swarm-ops #140 / #141)
 # ════════════════════════════════════════════════════════════════════════════
-async def main_async() -> None:
-    global _bot
-    _install_signal_handlers()
-    logger.info("=== Ionic Phase 4 engine starting ===")
+# Telegram is a CONTROL SURFACE, not a dependency of trading. It must never be
+# able to stop the engine from trading.
+#
+# Ported from Corinthian (swarm-ops #140, blisske/Foundation-Corinthian#3):
+# 2026-07-28, the host rebooted and Telegram's Bot API stalled for Corinthian's
+# bot token specifically (every method — getMe, getWebhookInfo — read-timed-out
+# server-side while the sibling bots' tokens answered in <1s over the same
+# socket). Corinthian's old main() called a naked `await app.initialize()`,
+# PTB's get_me() raised TimedOut, the process died before the trading loop
+# ever started, and `restart: unless-stopped` turned that into an unbounded
+# crash loop (RestartCount 32 in ~35 min, health stuck at `starting`). Ionic's
+# main_async() has the IDENTICAL naked `await app.initialize()` shape and the
+# same exposure — swarm-ops #141 ports the fix here.
+#
+# Ionic-specific adaptation: unlike Doric/Corinthian, Ionic's trading loop
+# (`trading_loop_async`) takes no `app` parameter — every notification call
+# site reaches Telegram through the module-level `_bot` global instead. So
+# rather than threading a surface object through the loop, `_bot` itself is
+# set to the deferred stand-in's `.bot` proxy as soon as the surface is
+# constructed (not just once truly attached). `_notify()` / `_maybe_send_
+# reveille()` already guard on `_bot is None`; since `_bot` is never None once
+# Telegram is configured, sends before attachment fall through to the proxy's
+# log-and-drop path instead of being silently skipped, and forward for real
+# once `attach()` swaps in the live Application — no call-site changes needed.
+_TELEGRAM_INIT_BACKOFF = (5, 15, 30)   # sleeps between boot attempts (4 attempts total)
+_TELEGRAM_REATTACH_SECONDS = int(os.environ.get("TELEGRAM_REATTACH_SECONDS", "300"))
 
-    telegram_token = secrets.get('telegram_bot_token')
-    telegram_user  = secrets.get('telegram_user_id')
 
-    # If Telegram isn't configured, skip the bot entirely and just run the
-    # trading loop. Keeps the engine functional pre-BotFather setup.
-    if not (telegram_token and telegram_user):
-        logger.warning(
-            "Telegram not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_USER_ID "
-            "missing); running headless. Trading loop will still execute."
-        )
-        await trading_loop_async()
-        return
+class _DeferredTelegramApp:
+    """Stand-in for the PTB Application that main_async holds for the life of
+    the process. Starts detached (Telegram unreachable): every outbound
+    `send_message` is logged and dropped instead of raising or silently
+    vanishing. Once `attach()` is handed a live Application, calls forward to
+    the real bot."""
 
-    # Build the Telegram app
-    app = (
-        Application.builder()
-        .token(telegram_token)
-        .read_timeout(15)
-        .write_timeout(15)
-        .build()
-    )
+    class _Bot:
+        def __init__(self, outer):
+            self._outer = outer
+
+        async def send_message(self, *a, **kw):
+            real = self._outer._real
+            if real is None:
+                self._outer._dropped += 1
+                logger.warning(
+                    f"Telegram detached — dropping outbound message "
+                    f"(dropped so far: {self._outer._dropped})"
+                )
+                return None
+            return await real.bot.send_message(*a, **kw)
+
+        async def set_my_commands(self, *a, **kw):
+            real = self._outer._real
+            if real is None:
+                return None
+            return await real.bot.set_my_commands(*a, **kw)
+
+    def __init__(self):
+        self._real = None
+        self._dropped = 0
+        self.bot = self._Bot(self)
+
+    @property
+    def attached(self):
+        return self._real is not None
+
+    @property
+    def real(self):
+        """The live PTB Application once attached, else None — used by the
+        graceful-shutdown teardown path."""
+        return self._real
+
+    def attach(self, real_app):
+        self._real = real_app
+
+
+def _register_telegram_handlers(app):
+    """Wire the command surface. Pure-local — no network, cannot fail on a
+    Telegram outage, so it is safe to re-run on every attach attempt."""
     app.add_handler(CommandHandler("indicators",   cmd_indicators))
     app.add_handler(CommandHandler("report",       cmd_report))
     app.add_handler(CommandHandler("pnl",          cmd_pnl))
@@ -2035,12 +2094,60 @@ async def main_async() -> None:
     app.add_handler(CommandHandler("start",        cmd_help))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    _bot = app.bot
 
-    # Register the command menu for slash-autocomplete
+async def _telegram_teardown(app):
+    """Best-effort teardown of a Telegram Application so the next attempt (or
+    process exit) starts from a clean object. Every step is independently
+    guarded — a failed initialize() leaves PTB in a state where stop()/
+    shutdown() themselves raise."""
+    if app is None:
+        return
+    for step in ("updater_stop", "stop", "shutdown"):
+        try:
+            if step == "updater_stop":
+                if app.updater is not None and app.updater.running:
+                    await app.updater.stop()
+            elif step == "stop":
+                if app.running:
+                    await app.stop()
+            else:
+                await app.shutdown()
+        except Exception:
+            pass
+
+
+async def _attach_telegram(telegram_token, telegram_user, surface, announce=True):
+    """Build → initialize → start → poll, then attach to `surface`.
+
+    Returns True on success, False on any failure. NEVER raises: this is called
+    from the boot path and from a background task, and neither may be allowed
+    to kill the engine.
+    """
+    global _last_reveille_day
+
+    app = None
+    try:
+        app = (
+            Application.builder()
+            .token(telegram_token)
+            .read_timeout(15)
+            .write_timeout(15)
+            .build()
+        )
+        _register_telegram_handlers(app)
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+    except Exception as e:
+        logger.warning(f"Telegram attach failed: {type(e).__name__}: {e}")
+        await _telegram_teardown(app)
+        return False
+
+    surface.attach(app)
+    logger.info("✅ Telegram surface attached — polling live.")
+
+    # Register the command menu for slash-autocomplete. Best-effort — failure
+    # here is non-fatal.
     try:
         await app.bot.set_my_commands([
             BotCommand("indicators",   "Technical readout for all pairs"),
@@ -2063,21 +2170,84 @@ async def main_async() -> None:
     # same "Ionic is alive" purpose, so when boot fires we suppress the
     # reveille for the rest of the day (otherwise a mid-morning restart
     # would deliver two back-to-back greetings).
-    global _last_reveille_day
-    try:
-        await app.bot.send_message(
-            chat_id=telegram_user,
-            text=(
-                "📈 <b>Ionic (FX) ONLINE</b>\n"
-                "Connected to Oanda Practice. Shadow mode.\n"
-                "Send /help for the command list."
-            ),
-            parse_mode='HTML',
+    if announce:
+        try:
+            await app.bot.send_message(
+                chat_id=telegram_user,
+                text=(
+                    "📈 <b>Ionic (FX) ONLINE</b>\n"
+                    "Connected to Oanda Practice. Shadow mode.\n"
+                    "Send /help for the command list."
+                ),
+                parse_mode='HTML',
+            )
+            # Boot delivered → swallow today's reveille
+            _last_reveille_day = datetime.datetime.now(pytz.timezone("America/Denver")).date()
+        except Exception as e:
+            logger.warning(f"Boot announcement failed: {e}")
+
+    return True
+
+
+async def _telegram_reattach_loop(telegram_token, telegram_user, surface):
+    """Background retry once the bounded boot attempts are exhausted. Runs for
+    the life of the process at a slow, non-abusive cadence — hammering a stalled
+    Telegram bot is what kept Corinthian's 2026-07-28 outage hot."""
+    attempt = 0
+    while not _shutting_down and not surface.attached:
+        await asyncio.sleep(_TELEGRAM_REATTACH_SECONDS)
+        if surface.attached or _shutting_down:
+            return
+        attempt += 1
+        logger.info(f"Telegram reattach attempt {attempt} (background)…")
+        if await _attach_telegram(telegram_token, telegram_user, surface, announce=True):
+            return
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BOOTSTRAP
+# ════════════════════════════════════════════════════════════════════════════
+async def main_async() -> None:
+    global _bot
+    _install_signal_handlers()
+    logger.info("=== Ionic Phase 4 engine starting ===")
+
+    telegram_token = secrets.get('telegram_bot_token')
+    telegram_user  = secrets.get('telegram_user_id')
+
+    # If Telegram isn't configured, skip the bot entirely and just run the
+    # trading loop. Keeps the engine functional pre-BotFather setup. Distinct
+    # from "Telegram is configured but unreachable" below — no retry makes
+    # sense when there's no token to retry with.
+    if not (telegram_token and telegram_user):
+        logger.warning(
+            "Telegram not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_USER_ID "
+            "missing); running headless. Trading loop will still execute."
         )
-        # Boot delivered → swallow today's reveille
-        _last_reveille_day = datetime.datetime.now(pytz.timezone("America/Denver")).date()
-    except Exception as e:
-        logger.warning(f"Boot announcement failed: {e}")
+        await trading_loop_async()
+        return
+
+    # Bring up the Telegram control surface (swarm-ops #140 / #141). BOUNDED
+    # retry with backoff, then DEGRADE: `_bot` is wired to the deferred
+    # surface's proxy immediately so every `_notify()` call site starts
+    # working the moment Telegram attaches, with no further code changes.
+    app = _DeferredTelegramApp()
+    _bot = app.bot
+    attempts = len(_TELEGRAM_INIT_BACKOFF) + 1
+    for i, backoff in enumerate((0,) + _TELEGRAM_INIT_BACKOFF):
+        if backoff:
+            logger.info(f"Telegram unavailable — retry {i}/{attempts - 1} in {backoff}s…")
+            await asyncio.sleep(backoff)
+        if await _attach_telegram(telegram_token, telegram_user, app):
+            break
+    else:
+        logger.error(
+            f"Telegram unreachable after {attempts} attempts — starting the trading loop "
+            f"WITHOUT the Telegram surface. Outbound alerts are dropped and /commands are "
+            f"dead until it attaches; a background task retries every "
+            f"{_TELEGRAM_REATTACH_SECONDS}s. Trading and the web dashboard are unaffected."
+        )
+        asyncio.create_task(_telegram_reattach_loop(telegram_token, telegram_user, app))
 
     # Start the trading loop as a background task. Both run concurrently.
     trade_task = asyncio.create_task(trading_loop_async())
@@ -2088,12 +2258,8 @@ async def main_async() -> None:
         await asyncio.sleep(2)
 
     logger.info("Shutdown requested; tearing down Telegram + trading loop.")
-    try:
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
-    except Exception as e:
-        logger.warning(f"Telegram shutdown error: {e}")
+    if app.attached:
+        await _telegram_teardown(app.real)
     trade_task.cancel()
     try:
         await trade_task
