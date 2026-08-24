@@ -43,6 +43,10 @@ from typing import Optional
 
 import requests
 
+# Cross-bot undeliverable-recipient guard. Lives in foundation/shared,
+# bind-mounted read-only at /app/shared (PYTHONPATH=/app) in engine + api.
+from shared.email_guard import reason_undeliverable
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,16 +80,6 @@ def send_email(
 
     Returns a result dict (see module docstring). Never raises.
     """
-    # Bug-hunt suppression — see Corinthian's email_sender for rationale.
-    # Stops the TestUser harness from burning Postmark's monthly quota.
-    if (os.environ.get("BUGHUNT_BYPASS_RATELIMIT") == "1"
-            and to and to.startswith("bughunt+")):
-        logger.info(f"[bughunt suppressed] send_email to={to} subject={subject!r}")
-        return {
-            "ok": True, "message_id": "bughunt-suppressed", "submitted_at": None,
-            "error": None,
-        }
-
     token = os.environ.get("POSTMARK_SERVER_TOKEN")
     if not token:
         logger.error("POSTMARK_SERVER_TOKEN not set — cannot send email")
@@ -97,6 +91,22 @@ def send_email(
         return {
             "ok": False, "message_id": None, "submitted_at": None,
             "error": "invalid recipient address",
+        }
+
+    # Undeliverable-recipient guard (swarm-ops #82) — see Corinthian's
+    # email_sender for the full rationale. One canonical rule set in
+    # foundation/shared: RFC 2606/6761 reserved domains + the swarm's
+    # test-harness identities. Supersedes the local bughunt+ check, which
+    # only fired when BUGHUNT_BYPASS_RATELIMIT=1. ok=True (the shape the
+    # old bughunt path returned) so a deliberate skip isn't an error path.
+    suppress_reason = reason_undeliverable(to)
+    if suppress_reason:
+        logger.warning(
+            f"[email suppressed: {suppress_reason}] send_email to={to} subject={subject!r}"
+        )
+        return {
+            "ok": True, "message_id": "suppressed", "submitted_at": None,
+            "error": None,
         }
 
     body = {
