@@ -67,6 +67,32 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
+
+# ── Outbound Telegram mute switch (swarm-ops #342) ──────────────────────────
+# Operator kill-switch for OUTBOUND engine alerts. Set TELEGRAM_ALERTS_MUTED=1
+# (or true/yes/on, case-insensitive) in the bot .env to silence every outbound
+# Telegram message the engine sends, WITHOUT touching the /command control
+# surface, the per-tenant stub path, or the swarm-ops #140 boot-resilience
+# contract. System alerts (separate cron scripts that read the .env token) are
+# unaffected. Reversible: remove the line or set 0, then restart the engine.
+def _env_truthy(_v) -> bool:
+    return str(_v).strip().lower() in ("1", "true", "yes", "on")
+
+
+TELEGRAM_ALERTS_MUTED = _env_truthy(os.environ.get("TELEGRAM_ALERTS_MUTED", ""))
+_muted_alert_drops = 0
+
+
+def _note_muted_drop() -> None:
+    """Count + log one suppressed OUTBOUND Telegram alert (TELEGRAM_ALERTS_MUTED)."""
+    global _muted_alert_drops
+    _muted_alert_drops += 1
+    logger.info(
+        f"TELEGRAM_ALERTS_MUTED — dropping outbound message "
+        f"(dropped so far: {_muted_alert_drops})"
+    )
+
+
 # ─── Paths + secrets ────────────────────────────────────────────────────────
 HEARTBEAT_PATH    = Path(os.environ.get('HEARTBEAT_PATH',    '/app/data/.engine_heartbeat'))
 RESTART_FLAG_PATH = Path(os.environ.get('RESTART_FLAG_PATH', '/app/data/.restart_engine'))
@@ -2076,6 +2102,39 @@ class _DeferredTelegramApp:
         self._real = real_app
 
 
+class _MutedTelegramApp:
+    """Operator mute wrapper (swarm-ops #342).
+
+    Wraps whatever Telegram app object the trading loop holds — a
+    `_DeferredTelegramApp`, and through it the real PTB Application once
+    `attach()` fires — and turns every OUTBOUND `send_message` into a counted,
+    logged no-op while TELEGRAM_ALERTS_MUTED is set. Everything else — command
+    handlers, polling, `set_my_commands`, `attach()`/teardown, and every other
+    attribute — passes straight through to the wrapped app, so the /command
+    control surface and the swarm-ops #140 boot-resilience contract are
+    untouched. The loop keeps this one object for the life of the process, so the
+    mute holds across the detached→attached transition.
+    """
+
+    class _Bot:
+        def __init__(self, inner_bot):
+            self._inner_bot = inner_bot
+
+        async def send_message(self, *_a, **_kw):
+            _note_muted_drop()
+            return None
+
+        def __getattr__(self, name):
+            return getattr(self._inner_bot, name)
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.bot = self._Bot(inner.bot)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 def _register_telegram_handlers(app):
     """Wire the command surface. Pure-local — no network, cannot fail on a
     Telegram outage, so it is safe to re-run on every attach attempt."""
@@ -2170,7 +2229,9 @@ async def _attach_telegram(telegram_token, telegram_user, surface, announce=True
     # same "Ionic is alive" purpose, so when boot fires we suppress the
     # reveille for the rest of the day (otherwise a mid-morning restart
     # would deliver two back-to-back greetings).
-    if announce:
+    if announce and TELEGRAM_ALERTS_MUTED:
+        _note_muted_drop()
+    elif announce:
         try:
             await app.bot.send_message(
                 chat_id=telegram_user,
@@ -2232,6 +2293,12 @@ async def main_async() -> None:
     # surface's proxy immediately so every `_notify()` call site starts
     # working the moment Telegram attaches, with no further code changes.
     app = _DeferredTelegramApp()
+    if TELEGRAM_ALERTS_MUTED:
+        logger.warning(
+            "TELEGRAM_ALERTS_MUTED is set — muting OUTBOUND engine Telegram "
+            "alerts (/commands + trading unaffected)."
+        )
+        app = _MutedTelegramApp(app)
     _bot = app.bot
     attempts = len(_TELEGRAM_INIT_BACKOFF) + 1
     for i, backoff in enumerate((0,) + _TELEGRAM_INIT_BACKOFF):
