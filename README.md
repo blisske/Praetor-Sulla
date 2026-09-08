@@ -1,3 +1,5 @@
+> ⚠️ RETIRED 2026-09-08 (swarm-ops #635): trading platform cannot beat buy and hold strategy. Not cost effective. Experiment complete.
+
 # Praetor · Ionic
 
 Autonomous **long-only spot FX** trading bot. Third instance of the Praetor
